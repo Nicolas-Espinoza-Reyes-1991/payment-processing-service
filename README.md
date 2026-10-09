@@ -141,6 +141,28 @@ Razonamiento completo de cada una, con alternativas consideradas y por qué se d
 
 ---
 
+## Flujo de trabajo con Git
+
+Desarrollé el proyecto con un flujo de ramas por funcionalidad e integración vía Pull Request,
+simulando el proceso de un equipo real aunque el desarrollo fue individual:
+
+- **Una rama por bloque de trabajo** (`feature/application-contracts`,
+  `feature/infrastructure-persistence`, `feature/api-endpoints`,
+  `feature/error-handling-logging`, `feature/readme-architecture`, `feature/unit-tests`, entre
+  otras), nunca commits directos sobre `main` salvo el scaffolding inicial.
+- **7 Pull Requests** mergeados a `main`, cada uno con su propia descripción explicando qué
+  incluye, qué decisiones de diseño conlleva y qué queda pendiente para el siguiente — [ver el
+  historial completo en
+  GitHub](https://github.com/Nicolas-Espinoza-Reyes-1991/payment-processing-service/pulls?q=is%3Apr+is%3Aclosed).
+- **Mensajes de commit con [Conventional Commits](https://www.conventionalcommits.org/)**:
+  prefijos `feat:`, `fix:`, `docs:`, `chore:`, `test:` según el tipo de cambio, con commits
+  atómicos (código y documentación separados en commits distintos dentro de un mismo bloque de
+  trabajo).
+- Cada rama se compiló y probó (`dotnet build` / `dotnet test` / pruebas manuales en vivo) antes
+  de abrir el Pull Request correspondiente.
+
+---
+
 ## Cómo ejecutar el proyecto localmente
 
 ### Requisitos previos

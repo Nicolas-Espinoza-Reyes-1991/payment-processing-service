@@ -539,10 +539,267 @@ ejecutar nada.
 
 ---
 
+## Docker y Docker Compose — levantar PostgreSQL sin instalarlo en la máquina
+
+### ¿Qué es un contenedor, en una frase?
+
+Un contenedor es un "mini sistema aislado" que empaqueta una aplicación (en este caso,
+PostgreSQL) con todo lo que necesita para correr, sin interferir con el resto de tu máquina ni
+requerir una instalación tradicional. Se puede prender y apagar como un servicio, y borrar sin
+dejar rastro si ya no se necesita.
+
+### `docker-compose.yml` — declarar qué contenedores necesita el proyecto
+
+En vez de escribir comandos largos de Docker a mano cada vez, se describe en un archivo YAML
+qué servicios hacen falta. En este proyecto, un solo servicio: `postgres`.
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    container_name: payment-processing-postgres
+    environment:
+      POSTGRES_DB: payment_processing
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: payment_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+- `image: postgres:16` — usa la imagen oficial de PostgreSQL, versión 16, descargada
+  automáticamente la primera vez.
+- `environment` — variables con las que PostgreSQL se autoconfigura al arrancar (nombre de la
+  base, usuario, contraseña).
+- `ports: "5432:5432"` — conecta el puerto 5432 de la máquina host con el puerto 5432 de dentro
+  del contenedor (el que usa PostgreSQL por defecto), permitiendo conectarse a `localhost:5432`
+  desde fuera del contenedor.
+- `volumes` — persiste los datos de la base en un espacio separado del ciclo de vida del
+  contenedor, para no perderlos si se reinicia o recrea el contenedor.
+
+**Nota de seguridad (para mencionar en la entrevista):** las credenciales de `environment` están
+escritas en texto plano en un archivo versionado en Git — válido para un desafío técnico con
+datos ficticios, pero en un proyecto real nunca se haría así; se usarían variables de entorno
+externas, o un gestor de secretos (Azure Key Vault, AWS Secrets Manager, etc.).
+
+### `docker compose up -d` — levantar el contenedor
+
+- `docker compose up` — lee `docker-compose.yml` y crea/arranca los servicios definidos.
+- `-d` ("detached") — corre en segundo plano, sin bloquear la terminal mostrando logs en vivo.
+
+### Problema encontrado: puerto 5432 ya ocupado
+
+Al correr `docker compose up -d` por primera vez, falló con:
+```
+Error response from daemon: failed to set up container networking: ...
+Bind for 0.0.0.0:5432 failed: port is already allocated
+```
+
+**Diagnóstico:** `docker ps` mostró que ya había **4 contenedores PostgreSQL** corriendo de
+otros proyectos en la misma máquina, uno de ellos (`hotel-reservas-db-1`) usando exactamente el
+puerto 5432 del host. No fue un error del proyecto — el puerto estaba legítimamente en uso por
+otro servicio ya activo.
+
+**Solución:** se cambió el mapeo de puertos en `docker-compose.yml`, de `"5432:5432"` a
+`"5436:5432"` (el primer número siguiente libre, ya que 5432-5435 estaban ocupados por otros
+proyectos). El formato `"host:contenedor"` significa que el puerto interno del contenedor
+(5432, el estándar de PostgreSQL, que nunca cambia) se expone hacia afuera en el puerto 5436 de
+la máquina. A partir de este cambio, la cadena de conexión de .NET apunta a `localhost:5436`,
+no al puerto estándar.
+
+**Por qué no se tocaron los otros contenedores:** eran de otros proyectos activos del usuario,
+sin relación con este desafío — pararlos o eliminarlos podría afectar trabajo ajeno a este
+repositorio. La resolución correcta ante un conflicto de puertos es casi siempre reasignar el
+puerto del servicio nuevo, no desalojar servicios existentes que no son parte del proyecto.
+
+---
+
+## `dotnet add package` — agregar paquetes NuGet a un proyecto específico
+
+```bash
+dotnet add <proyecto>.csproj package <NombreDelPaquete>
+```
+
+Descarga un paquete de NuGet y lo agrega como dependencia del proyecto indicado (a diferencia
+de `dotnet add reference`, que conecta dos proyectos *propios* entre sí, esto trae código
+*externo* de terceros).
+
+### Problema encontrado: versión de paquete incompatible con .NET 8
+
+Al instalar `Npgsql.EntityFrameworkCore.PostgreSQL` (el paquete que traduce entre Entity
+Framework Core y PostgreSQL) sin especificar versión, NuGet instaló por defecto la versión
+**10.0.3**, y falló con:
+```
+error: NU1202: El paquete Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 no es compatible con
+net8.0 (.NETCoreApp,Version=v8.0). El paquete ... admite: net10.0
+```
+
+**Causa:** `dotnet add package` sin `--version` instala la **última versión absoluta**
+publicada del paquete, no necesariamente la compatible con la versión de .NET del proyecto. El
+número de versión de un paquete NuGet no siempre coincide con la rama de .NET que soporta — acá
+la versión 10.x del paquete está pensada para .NET 10, no para nuestro .NET 8.
+
+**Solución:**
+```bash
+dotnet add src/Infrastructure/PaymentProcessingService.Infrastructure.csproj package Npgsql.EntityFrameworkCore.PostgreSQL --version 8.0.*
+```
+El flag `--version 8.0.*` fija la instalación a la rama de versiones `8.0.x` (la correspondiente
+a .NET 8), en vez de tomar automáticamente la última versión absoluta disponible.
+
+**Lección para la entrevista:** al agregar dependencias a un proyecto .NET, siempre verificar
+que la versión del paquete sea compatible con la versión del framework objetivo (`net8.0` en
+este caso) — no asumir que "la más nueva" es siempre la correcta.
+
+### Paquetes de EF Core instalados y por qué
+
+```bash
+dotnet add src/Infrastructure/PaymentProcessingService.Infrastructure.csproj package Npgsql.EntityFrameworkCore.PostgreSQL --version 8.0.*
+dotnet add src/Api/PaymentProcessingService.Api.csproj package Microsoft.EntityFrameworkCore.Design --version 8.0.*
+```
+
+- **`Npgsql.EntityFrameworkCore.PostgreSQL`** (en Infrastructure): el "traductor" entre Entity
+  Framework Core y PostgreSQL específicamente. Cada motor de base de datos tiene su propio
+  paquete equivalente (ej. `Microsoft.EntityFrameworkCore.SqlServer` para SQL Server).
+- **`Microsoft.EntityFrameworkCore.Design`** (en Api, no en Infrastructure): habilita la
+  generación de **migraciones** desde la terminal. Se instala en el **proyecto de arranque**
+  (`Api`, el que tiene `Program.cs`) porque las herramientas de EF Core necesitan poder
+  "levantar" la aplicación para leer su configuración al generar o aplicar migraciones.
+
+### `dotnet tool install --global dotnet-ef`
+
+```bash
+dotnet tool list --global          # verificar qué herramientas globales hay instaladas
+dotnet tool install --global dotnet-ef --version 8.*
+dotnet ef --version                # verificar que quedó instalada y accesible
+```
+
+`dotnet tool install --global` instala una herramienta de línea de comandos a nivel de **todo
+el sistema** (no de un proyecto puntual) — a diferencia de `dotnet add package` (que agrega una
+dependencia a un proyecto específico), esto queda disponible como el comando `dotnet ef` desde
+cualquier terminal, en cualquier carpeta de la máquina. Es la herramienta oficial de EF Core
+para generar y aplicar migraciones.
+
+---
+
+## `PaymentProcessingDbContext` — la clase central de EF Core
+
+Archivo `src/Infrastructure/Persistence/PaymentProcessingDbContext.cs`. Hereda de `DbContext`
+(clase base de EF Core) y representa la conexión a la base de datos, exponiendo "tablas" como
+propiedades C# en vez de SQL escrito a mano.
+
+- **`DbSet<Transaction> Transactions`**: representa la tabla `transactions`. Permite escribir
+  `_context.Transactions.Where(...)` y que EF Core lo traduzca a SQL real.
+- **`OnModelCreating` (Fluent API)**: configuración explícita de cómo se mapea cada campo, en
+  vez de dejar que EF Core adivine automáticamente:
+  - `HasMaxLength(...)` limita el tamaño de columnas de texto.
+  - `HasColumnType("numeric(18,2)")` en `Amount`: tipo numérico preciso de PostgreSQL para
+    dinero — nunca `float`/`double` para montos (tienen errores de redondeo).
+  - `HasConversion<string>()` en `Status`: guarda el enum como texto legible (`'Approved'`) en
+    vez del entero por defecto de EF Core — decisión cerrada en ADR-006 de `DECISIONES.md`.
+  - `HasIndex(t => t.IdempotencyKey).IsUnique()`: aplica la estrategia de idempotencia
+    (ADR-007) a nivel de base de datos — PostgreSQL rechaza duplicados, como segunda barrera
+    además de la validación en `CreatePaymentUseCase`.
+
+## `TransactionRepository` — implementación real de `ITransactionRepository`
+
+Archivo `src/Infrastructure/Persistence/TransactionRepository.cs`. Implementa la interfaz
+definida en Application usando el `DbContext`.
+
+- **LINQ**: `_context.Transactions.FirstOrDefaultAsync(t => t.Id == id)` — se escribe la
+  consulta como código C# (una expresión lambda), y EF Core la traduce a SQL real por detrás.
+- **`SaveChangesAsync()`**: EF Core "trackea" (hace seguimiento de) los cambios en memoria con
+  `AddAsync`/`Update`, pero **no escribe nada en la base hasta llamar a `SaveChangesAsync()`** —
+  permite agrupar varios cambios en una sola operación si hiciera falta.
+
+## `AcquirerMockClient` — implementación del Acquirer Mock que pide el PDF
+
+Archivo `src/Infrastructure/Acquiring/AcquirerMockClient.cs`. Implementa `IAcquirerClient` con
+una regla simple: aprueba, salvo que el monto supere 1.000.000 (simulando "fondos
+insuficientes"), con un `Task.Delay(150)` simulando latencia de red real. Usa códigos de
+respuesta estándar de la industria de pagos (ISO 8583): `"00"` = aprobada, `"51"` = fondos
+insuficientes — no son códigos inventados.
+
+**Se implementó antes de lo planeado:** originalmente iba después de terminar Infrastructure,
+pero se adelantó porque `dotnet ef migrations add` necesita poder construir toda la aplicación
+(incluyendo validar que `CreatePaymentUseCase` pueda resolver todas sus dependencias), y sin una
+implementación de `IAcquirerClient` registrada, ASP.NET Core fallaba al validar el contenedor de
+Inyección de Dependencias — ver más abajo.
+
+## Migraciones de EF Core — generar y aplicar
+
+```bash
+dotnet ef migrations add InitialCreate --project src/Infrastructure --startup-project src/Api
+dotnet ef database update --project src/Infrastructure --startup-project src/Api
+```
+
+- **`migrations add <Nombre>`**: genera el código que describe cómo crear/modificar las tablas
+  a partir del `DbContext` configurado. `--project` indica dónde viven los archivos de
+  migración (Infrastructure, junto al `DbContext`); `--startup-project` indica qué proyecto
+  "arrancar" para leer la configuración (Api, que tiene `Program.cs` y la cadena de conexión).
+  No toca la base de datos todavía — solo genera código C#.
+- **`database update`**: ejecuta las migraciones pendientes contra la base de datos real
+  conectada. Acá sí se crea físicamente la tabla.
+
+### Problema encontrado: `Unable to resolve service for type 'IAcquirerClient'`
+
+Al correr `migrations add` por primera vez, falló porque ASP.NET Core valida que **todo el
+árbol de dependencias registrado en el contenedor de DI** se pueda construir al armar la
+aplicación — y `CreatePaymentUseCase` (ya registrado) necesitaba `IAcquirerClient` en su
+constructor, que todavía no tenía ninguna implementación registrada (`dotnet ef` necesita
+levantar la aplicación completa para leer su configuración, no solo el `DbContext` aislado).
+
+**Solución:** se implementó `AcquirerMockClient` y se registró en `Program.cs` con
+`builder.Services.AddScoped<IAcquirerClient, AcquirerMockClient>();`, completando así el árbol
+de dependencias.
+
+**Lección:** en ASP.NET Core, un servicio registrado con una dependencia sin resolver no falla
+"en silencio" — falla fuerte y explícito al construir la aplicación (fail-fast), incluso antes
+de recibir ninguna petición HTTP real. Esto es una buena práctica del framework: evita
+descubrir en producción, a mitad de una petición, que falta una pieza — el error aparece
+apenas se intenta levantar la app.
+
+## Registro de servicios en `Program.cs` — Inyección de Dependencias real
+
+```csharp
+builder.Services.AddDbContext<PaymentProcessingDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("PaymentProcessingDb")));
+
+builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
+builder.Services.AddScoped<IAcquirerClient, AcquirerMockClient>();
+builder.Services.AddScoped<CreatePaymentUseCase>();
+```
+
+Esto es lo que resuelve, en código real, la pregunta que quedó pendiente desde que se escribió
+`CreatePaymentUseCase`: "¿quién decide qué implementación concreta usar para cada interfaz?" —
+la respuesta es este bloque en `Program.cs`, el único lugar de todo el proyecto que conoce tanto
+las interfaces de Application como las implementaciones concretas de Infrastructure.
+
+- **`AddDbContext<T>(...)`**: registra el `DbContext`, configurado para usar PostgreSQL
+  (`UseNpgsql`) con la cadena de conexión leída de `appsettings.Development.json`.
+- **`AddScoped<Interfaz, Implementación>`**: "cuando algo pida esta interfaz, dale esta
+  implementación concreta". `Scoped` significa que se crea una instancia nueva por cada
+  petición HTTP — ni una instancia global compartida entre todas las peticiones, ni una nueva
+  cada vez que se usa dentro de la misma petición.
+
+## Verificación directa en PostgreSQL
+
+```bash
+docker exec payment-processing-postgres psql -U payment_user -d payment_processing -c "\d transactions"
+```
+
+Comando para conectarse directamente al contenedor de Postgres y ejecutar `psql` (el cliente de
+línea de comandos de PostgreSQL) dentro de él, pidiendo la estructura (`\d`) de la tabla
+`transactions` — usado para confirmar, de forma independiente a EF Core, que la migración
+realmente creó la tabla con las columnas e índices esperados.
+
+---
+
 ## Pendiente de documentar a medida que avancemos
 
-- Entity Framework Core — qué es, migraciones, `DbContext`
-- Docker / Docker Compose — contenedores, imágenes, por qué Postgres va en un contenedor
 - Minimal API vs Controllers en ASP.NET Core
 - Inyección de dependencias en .NET
 - xUnit — estructura de un test, `Fact` vs `Theory`

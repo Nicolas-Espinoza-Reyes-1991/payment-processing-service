@@ -34,7 +34,8 @@
 | .NET SDK | 8.0.425 (incluye Runtime 8.0.31, ASP.NET Core Runtime 8.0.31) | ✅ Verificado | |
 | Node.js / npm | _pendiente_ | ⬜ Pendiente | Necesario para Angular CLI, se verifica más adelante |
 | Angular CLI | _pendiente_ | ⬜ Pendiente | Versión 17+, se instala en la etapa de frontend |
-| PostgreSQL | _pendiente_ | ⬜ Pendiente | Se levanta vía contenedor Docker, no instalación local |
+| PostgreSQL | 16 (imagen Docker `postgres:16`) | ✅ Verificado | Vía contenedor Docker, puerto host 5436 (5432 ocupado por otros proyectos) |
+| dotnet-ef (CLI) | 8.0.31 | ✅ Verificado | Herramienta global para migraciones |
 
 > Esta tabla alimenta directamente la sección "Instrucciones para ejecutar el proyecto
 > localmente" del README final.
@@ -50,24 +51,24 @@ o se referenciará un archivo en `/docs`)_
 
 ## 3. Checklist de requerimientos funcionales
 
-- [ ] `POST /payments` — crear solicitud de pago
+- [ ] `POST /payments` — crear solicitud de pago (falta el endpoint HTTP; la lógica ya existe en `CreatePaymentUseCase`)
 - [x] Validación de entrada a nivel de entidad (`merchant_id`, monto, moneda) — `Transaction.Create()`
 - [x] Creación de transacción con estado inicial (`PENDING`) — entidad `Transaction` en Domain
 - [ ] Reglas de negocio básicas (monto máximo, validación de tarjeta)
-- [ ] Integración con Acquirer Mock
-- [ ] Actualización de estado final según respuesta del adquirente
-- [ ] `GET /payments/{transaction_id}`
-- [ ] `GET /payments?merchant_id=...&status=...`
+- [x] Integración con Acquirer Mock — `AcquirerMockClient` implementado y registrado
+- [x] Actualización de estado final según respuesta del adquirente — en `CreatePaymentUseCase`
+- [ ] `GET /payments/{transaction_id}` — falta el endpoint HTTP (la consulta ya existe en `TransactionRepository`)
+- [ ] `GET /payments?merchant_id=...&status=...` — falta el endpoint HTTP (la consulta ya existe en `TransactionRepository`)
 
 ## 4. Checklist de requerimientos no funcionales
 
-- [ ] Persistencia en base de datos relacional
-- [ ] Modelo de datos con trazabilidad
-- [ ] Manejo de errores de validación y fallos del sistema
-- [ ] Idempotencia (evitar transacciones duplicadas)
+- [x] Persistencia en base de datos relacional — PostgreSQL + EF Core, tabla `transactions` creada y verificada
+- [x] Modelo de datos con trazabilidad — `CorrelationId`, timestamps, respuesta del adquirente guardada
+- [ ] Manejo de errores de validación y fallos del sistema (falta manejo a nivel HTTP/middleware)
+- [x] Idempotencia (evitar transacciones duplicadas) — lógica en `CreatePaymentUseCase` + constraint `UNIQUE` en BD
 - [ ] Manejo de errores temporales del adquirente (reintentos / timeouts)
 - [ ] Logging estructurado del flujo completo
-- [ ] Correlation ID / Trace ID por transacción
+- [x] Correlation ID / Trace ID por transacción — campo `CorrelationId` en `Transaction`, generado en `Create()`
 
 ## 5. Entregables
 
@@ -101,6 +102,9 @@ desafío)_
 | 2026-10-09 | ADR-006 (modelo de datos) y ADR-007 (idempotencia) definidos. Creada entidad `Transaction` y `TransactionStatus` en Domain, con validaciones y transiciones de estado controladas. `dotnet build` limpio (0 errores, 0 advertencias). |
 | 2026-10-09 | Repositorio conectado a GitHub (`payment-processing-service`). Primeros 3 commits con formato Conventional Commits: `docs`, `chore` (scaffolding) y `feat(domain)` (entidad Transaction). Push a `main` exitoso. |
 | 2026-10-09 | Rama `feature/application-contracts` creada. Definidas interfaces `ITransactionRepository` e `IAcquirerClient` en Application. Creado `CreatePaymentUseCase` orquestando el flujo completo (idempotencia, creación, autorización, actualización de estado). `dotnet build` limpio. |
+| 2026-10-09 | PR `feature/application-contracts` y PR de documentación mergeados a `main` vía GitHub. Rama `feature/infrastructure-persistence` creada. `docker-compose.yml` agregado (PostgreSQL 16); resuelto conflicto de puerto 5432 (reasignado a 5436) con otros proyectos del usuario ya corriendo en Docker. Contenedor `payment-processing-postgres` levantado y saludable. |
+| 2026-10-09 | Paquetes EF Core instalados: `Npgsql.EntityFrameworkCore.PostgreSQL` 8.0.11 (Infrastructure) y `Microsoft.EntityFrameworkCore.Design` 8.0.31 (Api). Resuelto conflicto de versión (NU1202) fijando rama 8.x. Herramienta global `dotnet-ef` 8.0.31 instalada. Creado `PaymentProcessingDbContext` con mapeo explícito de `Transaction` (Fluent API), `Status` como string, y constraint único en `IdempotencyKey`. |
+| 2026-10-09 | Creado `TransactionRepository` (implementación real de `ITransactionRepository`). Creado `AcquirerMockClient` (implementación de `IAcquirerClient`, adelantado por necesidad del árbol de dependencias). Cadena de conexión agregada en `appsettings.Development.json`. `Program.cs` configurado con `AddDbContext` + `AddScoped` para las 3 piezas (repositorio, acquirer mock, caso de uso). Migración `InitialCreate` generada y aplicada: tabla `transactions` creada y verificada directamente en PostgreSQL. `dotnet build` limpio (0 errores). |
 
 ---
 

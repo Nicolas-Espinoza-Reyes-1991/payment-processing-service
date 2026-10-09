@@ -11,6 +11,7 @@ public class AcquirerMockClient : IAcquirerClient
     {
         await Task.Delay(150);
 
+        // Disparador de prueba determinístico para simular un error temporal del adquirente — ver ADR-008
         if (cardLast4 == SimulatedTimeoutCardLast4)
         {
             throw new TimeoutException("Acquirer Mock: tiempo de espera agotado (simulado).");

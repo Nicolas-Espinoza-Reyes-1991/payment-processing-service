@@ -39,6 +39,33 @@ public class TransactionTests
     }
 
     [Fact]
+    public void Create_ConMerchantIdDemasiadoLargo_LanzaArgumentException()
+    {
+        var merchantIdLargo = new string('x', 101);
+
+        Assert.Throws<ArgumentException>(() =>
+            Transaction.Create(merchantIdLargo, 1000m, "CLP", "1234", "Visa", "key-001"));
+    }
+
+    [Theory]
+    [InlineData("CL")]
+    [InlineData("CLPP")]
+    public void Create_ConMonedaDeLargoInvalido_LanzaArgumentException(string monedaInvalida)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Transaction.Create("merchant-001", 1000m, monedaInvalida, "1234", "Visa", "key-001"));
+    }
+
+    [Fact]
+    public void Create_ConIdempotencyKeyDemasiadoLarga_LanzaArgumentException()
+    {
+        var idempotencyKeyLarga = new string('x', 201);
+
+        Assert.Throws<ArgumentException>(() =>
+            Transaction.Create("merchant-001", 1000m, "CLP", "1234", "Visa", idempotencyKeyLarga));
+    }
+
+    [Fact]
     public void MarkAsProcessing_DesdePending_CambiaAProcessing()
     {
         var transaction = CrearTransaccionValida();

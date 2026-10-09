@@ -29,14 +29,26 @@ public class Transaction
         if (string.IsNullOrWhiteSpace(merchantId))
             throw new ArgumentException("merchant_id es obligatorio.", nameof(merchantId));
 
+        if (merchantId.Length > 100)
+            throw new ArgumentException("merchant_id no puede superar los 100 caracteres.", nameof(merchantId));
+
         if (amount <= 0)
             throw new ArgumentException("El monto debe ser mayor a cero.", nameof(amount));
 
         if (string.IsNullOrWhiteSpace(currency))
             throw new ArgumentException("La moneda es obligatoria.", nameof(currency));
 
+        if (currency.Length != 3)
+            throw new ArgumentException("La moneda debe tener exactamente 3 caracteres (ej. CLP, USD).", nameof(currency));
+
+        if (!string.IsNullOrEmpty(cardBrand) && cardBrand.Length > 20)
+            throw new ArgumentException("La marca de la tarjeta no puede superar los 20 caracteres.", nameof(cardBrand));
+
         if (string.IsNullOrWhiteSpace(idempotencyKey))
             throw new ArgumentException("idempotency_key es obligatorio.", nameof(idempotencyKey));
+
+        if (idempotencyKey.Length > 200)
+            throw new ArgumentException("idempotency_key no puede superar los 200 caracteres.", nameof(idempotencyKey));
 
         var now = DateTime.UtcNow;
 

@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Material personal de estudio para la entrevista — nunca se sube al repo
+Guia_Entrevista_Haulmer.docx
+
 # dotenv files
 .env
 

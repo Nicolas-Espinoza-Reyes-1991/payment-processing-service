@@ -9,8 +9,28 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "X-Api-Key",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "API Key requerida para los endpoints de /payments"
+    });
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "ApiKey" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 builder.Services.AddCors(options =>
 {
@@ -23,7 +43,9 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddDbContext<PaymentProcessingDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("PaymentProcessingDb")));
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("PaymentProcessingDb"),
+        npgsqlOptions => npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3)));
 
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<IAcquirerClient, AcquirerMockClient>();
@@ -60,7 +82,31 @@ app.UseHttpsRedirection();
 
 app.UseCors();
 
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    var isExempt = path.StartsWithSegments("/swagger") || path.StartsWithSegments("/health");
+
+    if (!isExempt)
+    {
+        var expectedApiKey = builder.Configuration["Security:ApiKey"];
+        var providedApiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+
+        if (string.IsNullOrEmpty(expectedApiKey) || providedApiKey != expectedApiKey)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new { error = "API Key inválida o ausente. Incluí el header X-Api-Key." });
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.UseAuthorization();
+
+app.MapHealthChecks("/health");
 
 app.MapControllers();
 

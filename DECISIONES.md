@@ -109,6 +109,17 @@ testear las reglas de negocio con xUnit sin levantar base de datos ni HTTP.
 tests unitarios concentrados en `Domain`/`Application`; tests de integración sobre
 `Infrastructure`/`Api`.
 
+**Evolución reconocida — procesamiento asíncrono:** actualmente `CreatePaymentUseCase` llama al
+adquirente de forma síncrona, bloqueando la respuesta HTTP hasta tener el resultado final. Es
+una simplificación consciente, coherente con el alcance del desafío. En un escenario de
+producción con alto volumen, el siguiente paso evolutivo natural (antes de considerar
+microservicios) sería desacoplar esa llamada con una cola de mensajes (RabbitMQ, AWS SQS): el
+comercio recibiría `202 Accepted` de inmediato, un *worker* en segundo plano procesaría la
+autorización, y el resultado se notificaría vía webhook. Esto evita que una llamada lenta al
+adquirente bloquee el hilo HTTP principal, sin necesitar partir el sistema en servicios
+separados — es un ejemplo concreto de evolución **dentro** del monolito modular, no hacia
+microservicios.
+
 ---
 
 ## ADR-004: Framework de pruebas xUnit
@@ -307,3 +318,80 @@ de componentes chicos comunicados por `input()`/`output()`, y el patrón contene
 no es 100% presentacional (inyecta sus propios servicios para el envío) — una excepción
 deliberada y aceptada: un componente de formulario puede poseer su propia lógica de envío,
 igual que `CreatePaymentUseCase` concentra una sola capacidad de negocio en el backend.
+
+---
+
+## ADR-011: Revisión de seguridad final — hallazgos y correcciones
+
+**Contexto:** antes de la entrega, se hizo una revisión de seguridad dedicada (inyección SQL,
+XSS, mass assignment, fuga de datos en errores, exposición de la API, paquetes vulnerables).
+Se encontraron y corrigieron 5 hallazgos reales.
+
+### 1. Sin autenticación en los endpoints
+
+**Decisión:** se agregó un control de **API Key** simple — un middleware en `Program.cs` que
+exige el header `X-Api-Key` en todas las rutas salvo `/health` y `/swagger`, devolviendo `401`
+si falta o no coincide con el valor configurado. Swagger se configuró con un esquema de
+seguridad (`AddSecurityDefinition`) para poder autorizar desde la UI con el botón "Authorize".
+El frontend Angular lo adjunta automáticamente vía un `HttpInterceptorFn`
+(`apiKeyInterceptor`), para no tener que agregar el header a mano en cada llamada.
+
+**Por qué API Key y no OAuth2/JWT completo:** un esquema de usuarios/tokens completo es una
+pieza de alcance mucho mayor (gestión de usuarios, refresh tokens, expiración), no proporcional
+al resto del desafío. API Key es el control mínimo razonable para demostrar que el endpoint no
+queda completamente abierto, dejando documentado que en producción real correspondería
+autenticación por comercio (API Keys individuales, guardadas hasheadas) o un esquema más
+robusto si hay usuarios finales.
+
+**Por qué no se consideró "fuera de alcance" como otros puntos:** a diferencia de rate limiting
+u observabilidad centralizada, no tener ningún control de acceso en una API que simula un
+sistema de pagos es una omisión que cualquier revisor notaría de inmediato — el costo de
+implementarlo (un middleware simple) era mucho menor que el costo de no tenerlo.
+
+### 2. Validaciones de largo ausentes en el Domain (causaban `500` en vez de `400`)
+
+**Hallazgo:** `Transaction.Create()` no validaba el largo de `merchantId`, `currency`,
+`cardBrand` ni `idempotencyKey` contra los límites configurados en la base de datos
+(`HasMaxLength` en `PaymentProcessingDbContext`). Un valor que excediera esos límites llegaba
+sin control hasta PostgreSQL, que lo rechazaba con una excepción no controlada — el mismo
+patrón de bug que el de ADR anterior (validación de monto), mapeado incorrectamente a `500`.
+
+**Corrección:** se agregaron las mismas validaciones de largo en `Transaction.Create()`
+(`ArgumentException`, ya capturada como `400` por el controller desde la corrección anterior),
+replicando los límites de la base de datos también en el Domain — la base de datos deja de ser
+la única línea de defensa.
+
+### 3. Paquetes NuGet transitivos vulnerables en proyectos de test
+
+**Hallazgo:** `dotnet list package --vulnerable` reportó `System.Net.Http` y
+`System.Text.RegularExpressions` (versión 4.3.0, severidad "High") como dependencias
+transitivas de versiones antiguas de `Microsoft.NET.Test.Sdk`/`xunit`/`coverlet.collector` en
+los proyectos de test — no afectaban el código de producción (`Api`/`Application`/
+`Domain`/`Infrastructure` salieron limpios).
+
+**Corrección:** se actualizaron `Microsoft.NET.Test.Sdk`, `xunit`, `xunit.runner.visualstudio` y
+`coverlet.collector` a sus versiones más recientes compatibles con .NET 8, eliminando las
+dependencias transitivas vulnerables. Confirmado con `dotnet list package --vulnerable`: 0
+paquetes vulnerables en los 6 proyectos de la solución.
+
+### 4. Sin reintentos ante fallas transitorias de conexión a PostgreSQL
+
+**Decisión:** se agregó `EnableRetryOnFailure(maxRetryCount: 3)` a la configuración de
+`UseNpgsql` en `Program.cs` — una línea de configuración nativa de EF Core/Npgsql que reintenta
+automáticamente operaciones de base de datos ante errores transitorios de red/conexión (no
+errores de lógica). Complementa, a otro nivel, la misma filosofía de resiliencia que ya se
+aplicó para la llamada al adquirente (ADR-008).
+
+### 5. Sin endpoint de monitoreo (`/health`)
+
+**Decisión:** se agregó `app.MapHealthChecks("/health")`, usando el *health checks* nativos de
+ASP.NET Core (sin paquetes adicionales). Es un estándar esperado en cualquier servicio real —
+necesario para que un balanceador de carga, Kubernetes, o cualquier sistema de monitoreo externo
+pueda verificar si la aplicación está viva, sin necesitar autenticación (por eso se excluyó
+explícitamente del middleware de API Key).
+
+### Verificación
+
+Los 5 hallazgos se probaron en vivo contra el servidor real (ver `PRUEBAS.md`, sección 13), y
+los 18 tests unitarios (14 Domain + 4 Application, subieron de 14 a 18 con las nuevas
+validaciones de largo) siguen pasando sin regresiones tras todos los cambios.

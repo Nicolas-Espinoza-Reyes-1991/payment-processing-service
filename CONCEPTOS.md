@@ -937,6 +937,154 @@ dotnet test
 
 ---
 
+## Frontend Angular — conceptos clave
+
+### CORS — por qué fue necesario configurarlo en el backend
+
+Los navegadores bloquean por defecto que una página en un "origen" (`http://localhost:4200`,
+donde corre Angular) consuma datos de otro origen distinto (`http://localhost:5165`, la API) —
+es una medida de seguridad para evitar que sitios maliciosos lean datos de APIs ajenas desde el
+navegador de un usuario. Mismo `localhost`, pero **puerto distinto cuenta como origen distinto**.
+
+Se resolvió agregando una política de CORS en `Program.cs`:
+```csharp
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+        policy.WithOrigins("http://localhost:4200").AllowAnyHeader().AllowAnyMethod());
+});
+// ...
+app.UseCors();
+```
+`WithOrigins(...)` en vez de `AllowAnyOrigin()`: se permite específicamente el origen de
+Angular en desarrollo, no cualquier sitio del mundo — más seguro.
+
+### `ng new ... --skip-git`
+
+Por defecto, `ng new` inicializa un repositorio Git **nuevo** dentro de la carpeta del proyecto
+generado. Como ya existía un repositorio Git en la raíz (todo el proyecto .NET + Angular viven
+en el mismo repo), se usó `--skip-git` para evitar un repositorio Git anidado dentro de otro.
+
+### Componentes standalone (sin `NgModule`)
+
+Angular 21 genera componentes **standalone** por defecto — cada componente declara
+explícitamente, en su propio array `imports`, todo lo que necesita (otros componentes,
+directivas, **pipes**), en vez de heredarlo implícitamente de un `NgModule` compartido como en
+versiones más antiguas de Angular. Es más verboso pero más explícito: mirando un componente se
+sabe exactamente de qué depende, sin tener que rastrear un módulo aparte.
+
+**Problema encontrado:** el template usaba los pipes `| number` y `| date` (para formatear
+montos y fechas), pero fallaba con `NG8004: No pipe found with name 'number'`. **Causa:** en
+componentes standalone, pipes como `DecimalPipe` y `DatePipe` (antes incluidos "gratis" vía
+`CommonModule`) hay que importarlos explícitamente:
+```typescript
+import { DecimalPipe, DatePipe } from '@angular/common';
+// ...
+@Component({ imports: [FormsModule, DecimalPipe, DatePipe], ... })
+```
+
+### `signal()` — manejo de estado reactivo
+
+```typescript
+protected readonly transactions = signal<Transaction[]>([]);
+```
+Un `signal` es un contenedor de estado reactivo (Angular moderno, reemplaza en muchos casos a
+`BehaviorSubject`/RxJS para estado simple de componente): cuando se llama `transactions.set(...)`,
+cualquier parte del template que use `transactions()` se actualiza automáticamente, sin
+necesidad de `ChangeDetectorRef` ni suscripciones manuales.
+
+### `inject()` — inyección de dependencias sin constructor
+
+```typescript
+private readonly transactionsService = inject(TransactionsService);
+```
+Forma moderna de Angular de obtener una dependencia (equivalente conceptual a la Inyección de
+Dependencias que venimos usando en .NET todo el proyecto), sin necesidad de declararla como
+parámetro del constructor — más compacto, mismo principio de fondo.
+
+### `@if` / `@for` — control de flujo en templates (sintaxis moderna)
+
+```html
+@if (loading()) { <p>Cargando...</p> }
+@for (t of transactions(); track t.transactionId) { <tr>...</tr> } @empty { <tr>...</tr> }
+```
+Reemplazan las directivas estructurales más antiguas (`*ngIf`, `*ngFor`) con una sintaxis más
+parecida a JavaScript/TypeScript nativo, integrada directamente en el compilador de Angular
+(más rápida, mejor tipado). `track` (equivalente a `trackBy` antes) ayuda a Angular a identificar
+qué elementos cambiaron sin recrear toda la lista en cada actualización.
+
+---
+
+## Separación en componentes — patrón contenedor/presentacional en Angular
+
+Se refactorizó el frontend de un único componente a 3 componentes + 1 servicio (ver ADR-010 en
+`DECISIONES.md`).
+
+### `input()` / `output()` — la forma moderna de comunicar componentes padre-hijo
+
+```typescript
+// En el hijo (TransactionListComponent):
+transactions = input.required<Transaction[]>();   // recibe datos del padre
+search = output<SearchFilters>();                  // emite un evento hacia el padre
+```
+```html
+<!-- En el padre (app.html): -->
+<app-transaction-list
+  [transactions]="transactions()"
+  (search)="search($event)"
+/>
+```
+
+- `input.required<T>()`: declara una propiedad que el componente **recibe** desde su padre —
+  `.required` obliga a que el padre siempre la provea (error de compilación si no). Reemplaza
+  al decorador `@Input()` de versiones anteriores de Angular.
+- `output<T>()`: declara un evento que el componente **emite** hacia su padre. Reemplaza a
+  `@Output() + EventEmitter<T>`.
+- `[propiedad]="valor"` (corchetes) = **property binding**, pasa un valor hacia el hijo.
+- `(evento)="metodo($event)"` (paréntesis) = **event binding**, escucha un evento del hijo.
+
+### Por qué esto hace al componente "presentacional" (o "tonto")
+
+`TransactionListComponent` no importa `TransactionsService` ni sabe nada de HTTP — solo recibe
+datos ya cargados y, cuando el usuario interactúa, **emite la intención** ("quiero buscar con
+estos filtros") sin ejecutar la búsqueda él mismo. Quien orquesta (`App`) decide qué hacer con
+esa intención. Esto es el mismo principio de Inversión de Dependencias aplicado al frontend:
+el componente depende de un contrato simple (sus `input`/`output`), no de cómo se obtienen los
+datos realmente.
+
+### `NgForm` y validación nativa de Angular
+
+```html
+<form #paymentForm="ngForm" (ngSubmit)="submitPayment(paymentForm)" novalidate>
+  <input name="merchantId" [(ngModel)]="formMerchantId" #merchantIdCtrl="ngModel" required />
+  @if (merchantIdCtrl.invalid && merchantIdCtrl.touched) {
+    <span class="field-error">El comercio es obligatorio.</span>
+  }
+</form>
+```
+
+- `#paymentForm="ngForm"`: variable de referencia de plantilla que expone el estado de
+  validación de **todo el formulario** (`form.invalid`, `form.controls`).
+- `#merchantIdCtrl="ngModel"`: lo mismo, pero para **un campo individual**.
+- Los atributos HTML5 nativos (`required`, `min`, `pattern`, `maxlength`) son interpretados
+  automáticamente por Angular a través de `ngModel` — no se escribió ninguna función de
+  validación a mano.
+- `[class.invalid]="ctrl.invalid && ctrl.touched"`: agrega una clase CSS condicionalmente, solo
+  cuando el campo es inválido **y** el usuario ya interactuó con él (evita mostrar errores en
+  rojo antes de que el usuario escriba nada).
+- `markAsTouched()` en cada control (en `submitPayment`, si el form es inválido): fuerza a que
+  se muestren los errores de todos los campos aunque el usuario no los haya tocado, al intentar
+  enviar un formulario incompleto.
+
+### Diseño visual con identidad de marca
+
+Se tomó la paleta real del sitio público de Haulmer (azul `#2E4BF2`, rosa `#EC1E82`, botones
+píldora, tarjetas muy redondeadas) como referencia visual, y un wordmark tipográfico en vez de
+un logo gráfico (consistente con la identidad real de Haulmer, que tampoco usa un ícono). No se
+descargó ni reprodujo ningún archivo gráfico de la empresa.
+
+---
+
 ## Pendiente de documentar a medida que avancemos
 
 - Inyección de dependencias en .NET (profundizar más allá de lo ya cubierto)

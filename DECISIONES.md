@@ -255,3 +255,55 @@ estructurados, Elasticsearch, Seq, Application Insights). Para este desafío, do
 consultan en la consola/terminal durante la demo, el logging nativo de ASP.NET Core cumple el
 requerimiento sin sumar otra dependencia — mismo criterio que en ADR-008. Se documenta como
 posible evolución futura si el sistema necesitara centralizar logs de múltiples instancias.
+
+---
+
+## ADR-010: Arquitectura del frontend Angular — componentes separados por responsabilidad
+
+**Contexto:** el frontend (opcional) se implementó inicialmente como un único componente
+(`App`) con la tabla, los filtros, el modal de creación de pago y las notificaciones todo
+mezclado. Funcionaba, pero mezclaba responsabilidades claramente distintas en un mismo archivo.
+
+**Decisión:** se refactorizó en 3 componentes + 1 servicio, aplicando el mismo principio de
+separación de responsabilidades (Single Responsibility) usado en todo el backend:
+
+- **`TransactionListComponent`** (presentacional/"tonto"): recibe los datos por `input()`,
+  emite la intención de búsqueda por `output()`, nunca llama a la API directamente.
+- **`PaymentFormModalComponent`**: encapsula el formulario de creación, su validación, y el
+  envío a la API — una única responsabilidad bien delimitada, equivalente conceptualmente a
+  `CreatePaymentUseCase` en el backend (una sola capacidad de negocio).
+- **`ToastComponent`** (presentacional): solo renderiza el estado actual de `ToastService`, sin
+  lógica propia.
+- **`ToastService`** (`providedIn: 'root'`): estado compartido de notificaciones, inyectable
+  desde cualquier componente — mismo patrón de Inyección de Dependencias aplicado en .NET con
+  `AddScoped`/`AddSingleton`.
+- **`App`** queda como orquestador liviano: mantiene el estado de la lista de transacciones y
+  conecta los 3 componentes hijos vía `input()`/`output()`, sin lógica de formulario ni de
+  notificaciones propia.
+
+**Paralelismo con la arquitectura del backend:** los componentes presentacionales
+(`TransactionListComponent`, `ToastComponent`) cumplen un rol similar al de `Domain` — no saben
+nada de HTTP ni de infraestructura, solo reciben datos y emiten intenciones. `TransactionsService`
+(la llamada HTTP real) cumple el rol de `Infrastructure`. `PaymentFormModalComponent` orquesta
+una capacidad de negocio concreta, similar a un caso de uso de `Application`.
+
+**Por qué no un patrón más elaborado (NgRx, estado global, feature modules):** para 4
+componentes y un flujo de datos simple (una lista, un formulario), un gestor de estado como
+NgRx agregaría complejidad sin resolver ningún problema real presente — mismo criterio aplicado
+al descartar microservicios/hexagonal en el backend (ver ADR-003): la arquitectura correcta es
+la que resuelve la complejidad que existe, no la que podría existir.
+
+**Diseño visual:** se tomó como referencia la paleta e identidad visual del sitio público de
+Haulmer (haulmer.com) — azul `#2E4BF2` como color primario, rosa/magenta `#EC1E82` como acento,
+botones en forma de píldora, tarjetas con bordes muy redondeados, y un wordmark tipográfico
+("Haulmer" en negrita, sin ícono gráfico — consistente con su identidad real, que tampoco usa
+un ícono) en el header. No se reprodujo ningún asset gráfico (logo/ícono) de la empresa, solo se
+tomó inspiración de paleta y tipografía para un proyecto personal de postulación.
+
+**Validación contra la guía oficial de Angular:** este diseño coincide con lo que el propio
+equipo de Angular recomienda — standalone components (default desde Angular 17+), composición
+de componentes chicos comunicados por `input()`/`output()`, y el patrón contenedor/presentacional
+(estándar en toda la industria frontend, no exclusivo de Angular). `PaymentFormModalComponent`
+no es 100% presentacional (inyecta sus propios servicios para el envío) — una excepción
+deliberada y aceptada: un componente de formulario puede poseer su propia lógica de envío,
+igual que `CreatePaymentUseCase` concentra una sola capacidad de negocio en el backend.

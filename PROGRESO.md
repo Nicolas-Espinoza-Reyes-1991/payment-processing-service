@@ -7,7 +7,7 @@
 > La evidencia de pruebas end-to-end (requests, responses y capturas reales) está en
 > [`PRUEBAS.md`](./PRUEBAS.md).
 
-Última actualización: 2026-10-08
+Última actualización: 2026-10-09
 
 ---
 
@@ -34,8 +34,10 @@
 | Git | 2.32.0.windows.2 | ✅ Verificado | |
 | Docker | 29.2.1 (build a5c7197) | ✅ Verificado | |
 | .NET SDK | 8.0.425 (incluye Runtime 8.0.31, ASP.NET Core Runtime 8.0.31) | ✅ Verificado | |
-| Node.js / npm | _pendiente_ | ⬜ Pendiente | Necesario para Angular CLI, se verifica más adelante |
-| Angular CLI | _pendiente_ | ⬜ Pendiente | Versión 17+, se instala en la etapa de frontend |
+| Node.js | v22.22.0 | ✅ Verificado | |
+| npm | 10.9.4 | ✅ Verificado | |
+| Angular CLI | 21.2.0 | ✅ Verificado | Ya instalado previamente, supera el mínimo 17+ pedido |
+| Angular (framework) | 21.2.0 | ✅ Verificado | Proyecto `frontend/` creado con `ng new`, componentes standalone (sin NgModules) |
 | PostgreSQL | 16 (imagen Docker `postgres:16`) | ✅ Verificado | Vía contenedor Docker, puerto host 5436 (5432 ocupado por otros proyectos) |
 | dotnet-ef (CLI) | 8.0.31 | ✅ Verificado | Herramienta global para migraciones |
 
@@ -111,16 +113,15 @@ desafío)_
 | 2026-10-09 | ADR-008 (manejo de errores temporales) y ADR-009 (logging) definidos. `AcquirerMockClient` simula timeout determinístico (tarjeta `...9999`). `CreatePaymentUseCase` con reintentos (3 intentos, backoff simple) y logging estructurado con `ILogger` nativo, incluyendo `CorrelationId` en cada log. Middleware global de excepciones agregado en `Program.cs` (`500` genérico, sin exponer detalles internos). Probado en vivo: ciclo completo `Pending → Processing → 3 reintentos → Failed` visible en logs reales, capturado en `PRUEBAS.md`. |
 | 2026-10-09 | README.md completo: arquitectura, flujo de transacción, endpoints, decisiones destacadas, instrucciones de ejecución, supuestos, alcance fuera del desafío, y uso de IA. |
 | 2026-10-09 | Tests unitarios: 10 tests en `Domain.Tests` (reglas de negocio y transiciones de estado de `Transaction`) y 4 en `Application.Tests` (`CreatePaymentUseCase`, con fakes hechos a mano para `ITransactionRepository`/`IAcquirerClient`, sin librerías de mocking). 14/14 tests pasando. |
+| 2026-10-09 | Sección "Flujo de trabajo con Git" agregada al README (consistencia en documentación del proceso, pedido explícito del usuario). |
+| 2026-10-09 | Frontend Angular 21.2.0 creado (`ng new`, componentes standalone). CORS configurado en el backend. Vista de consulta de transacciones (tabla + filtros por `merchant_id`/`status`) consumiendo `GET /payments` real, probada en vivo con `ng serve` + backend corriendo en paralelo — filtro por estado verificado funcionando. |
+| 2026-10-09 | Rediseño visual con paleta e identidad tipográfica reales de Haulmer (azul `#2E4BF2`, rosa `#EC1E82`, botones píldora, wordmark tipográfico). Agregado formulario de creación de pago como modal, con validación nativa de Angular (`NgForm`, `required`/`pattern`/`min`) y notificación toast. Refactor a arquitectura de componentes separados por responsabilidad (`TransactionListComponent`, `PaymentFormModalComponent`, `ToastComponent` + `ToastService`), documentado en ADR-010. Probado en vivo: validación bloqueando envío inválido, y creación exitosa con refresco automático de la tabla. **Proyecto funcionalmente completo al 100% del alcance planeado (obligatorio + opcional).** |
 
 ---
 
 ## 8. Pendientes / próximos pasos
 
-- [ ] Agregar los 6 proyectos a la solución y conectar referencias entre capas (Paso 5)
-- [ ] Diseñar diagrama de flujo de alto nivel
-- [ ] Definir modelo de datos (tabla `transactions`, estados, trazabilidad)
-- [ ] Definir estrategia de idempotencia
-- [ ] Implementar Acquirer Mock
-- [ ] Implementar endpoints
-- [ ] Escribir pruebas
-- [ ] Escribir README final
+- [x] Número de Pull Requests en README — resuelto cambiando la redacción para no depender de
+      un número fijo que se desactualiza en cada commit (ver "Flujo de trabajo con Git")
+- [ ] Revisión completa de toda la documentación (ortografía, consistencia) antes de entregar —
+      programada para después de descansar

@@ -1,0 +1,116 @@
+@if (isOpen()) {
+  <div class="modal-backdrop" (click)="close()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Crear nuevo pago</h2>
+        <button class="modal-close" (click)="close()" aria-label="Cerrar">✕</button>
+      </div>
+
+      <form #paymentForm="ngForm" (ngSubmit)="submitPayment(paymentForm)" novalidate>
+        <div class="form-grid">
+          <div class="filter-group">
+            <label for="formMerchantId">Comercio</label>
+            <input
+              id="formMerchantId"
+              name="merchantId"
+              type="text"
+              [(ngModel)]="formMerchantId"
+              #merchantIdCtrl="ngModel"
+              required
+              [class.invalid]="merchantIdCtrl.invalid && merchantIdCtrl.touched"
+            />
+            @if (merchantIdCtrl.invalid && merchantIdCtrl.touched) {
+              <span class="field-error">El comercio es obligatorio.</span>
+            }
+          </div>
+
+          <div class="filter-group">
+            <label for="formAmount">Monto</label>
+            <input
+              id="formAmount"
+              name="amount"
+              type="number"
+              [(ngModel)]="formAmount"
+              #amountCtrl="ngModel"
+              required
+              min="1"
+              [class.invalid]="amountCtrl.invalid && amountCtrl.touched"
+            />
+            @if (amountCtrl.invalid && amountCtrl.touched) {
+              <span class="field-error">Ingresá un monto mayor a cero.</span>
+            }
+          </div>
+
+          <div class="filter-group">
+            <label for="formCurrency">Moneda</label>
+            <input
+              id="formCurrency"
+              name="currency"
+              type="text"
+              maxlength="3"
+              placeholder="CLP"
+              [(ngModel)]="formCurrency"
+              #currencyCtrl="ngModel"
+              required
+              pattern="^[A-Za-z]{3}$"
+              [class.invalid]="currencyCtrl.invalid && currencyCtrl.touched"
+            />
+            @if (currencyCtrl.invalid && currencyCtrl.touched) {
+              <span class="field-error">Usá el código de 3 letras (ej. CLP, USD).</span>
+            }
+          </div>
+
+          <div class="filter-group">
+            <label for="formCardNumber">Número de tarjeta</label>
+            <input
+              id="formCardNumber"
+              name="cardNumber"
+              type="text"
+              inputmode="numeric"
+              [(ngModel)]="formCardNumber"
+              #cardNumberCtrl="ngModel"
+              required
+              pattern="^[0-9]{13,19}$"
+              [class.invalid]="cardNumberCtrl.invalid && cardNumberCtrl.touched"
+            />
+            @if (cardNumberCtrl.invalid && cardNumberCtrl.touched) {
+              <span class="field-error">Ingresá entre 13 y 19 dígitos, sin espacios.</span>
+            }
+          </div>
+
+          <div class="filter-group">
+            <label for="formCardBrand">Marca</label>
+            <input
+              id="formCardBrand"
+              name="cardBrand"
+              type="text"
+              [(ngModel)]="formCardBrand"
+              #cardBrandCtrl="ngModel"
+              required
+              [class.invalid]="cardBrandCtrl.invalid && cardBrandCtrl.touched"
+            />
+            @if (cardBrandCtrl.invalid && cardBrandCtrl.touched) {
+              <span class="field-error">La marca es obligatoria.</span>
+            }
+          </div>
+        </div>
+
+        <p class="form-hint">
+          Tip: usá una tarjeta terminada en <code>9999</code> para simular un error temporal del
+          adquirente, o un monto mayor a <code>1.000.000</code> para simular un rechazo.
+        </p>
+
+        @if (submitError()) {
+          <div class="form-error-banner">{{ submitError() }}</div>
+        }
+
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" (click)="close()">Cancelar</button>
+          <button type="submit" class="btn-primary" [disabled]="submitting()">
+            {{ submitting() ? 'Procesando...' : 'Confirmar pago' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

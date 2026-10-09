@@ -1,0 +1,32 @@
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">Haulmer</span>
+    <span class="brand-divider">|</span>
+    <span class="brand-sub">Payment Processing Service</span>
+  </div>
+</header>
+
+<main class="container">
+  <section class="page-header">
+    <div>
+      <h1>Transacciones</h1>
+      <p class="subtitle">Consultá el estado de los pagos procesados por el sistema</p>
+    </div>
+    <button class="btn-primary" (click)="openModal()">+ Nuevo pago</button>
+  </section>
+
+  <app-transaction-list
+    [transactions]="transactions()"
+    [loading]="loading()"
+    [error]="error()"
+    (search)="search($event)"
+  />
+</main>
+
+<app-payment-form-modal
+  [isOpen]="showModal()"
+  (closed)="closeModal()"
+  (created)="refresh()"
+/>
+
+<app-toast />

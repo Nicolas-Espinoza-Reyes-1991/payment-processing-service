@@ -265,9 +265,67 @@ solo en teoría.
 
 ---
 
+## 9. Tests unitarios automatizados
+
+```bash
+dotnet test
+```
+```
+Correctas! - Con error: 0, Superado: 10, Omitido: 0, Total: 10 - PaymentProcessingService.Domain.Tests.dll
+Correctas! - Con error: 0, Superado: 4, Omitido: 0, Total: 4 - PaymentProcessingService.Application.Tests.dll
+```
+
+14/14 tests pasando (10 de reglas de negocio en Domain, 4 del flujo completo en Application,
+incluyendo idempotencia y reintentos simulados sin PostgreSQL ni HTTP real).
+
+---
+
+## 10. Frontend Angular — consumo real de la API
+
+Levantado con `ng serve` (puerto 4200) en paralelo al backend (puerto 5165), con CORS
+configurado entre ambos. La vista consulta `GET /payments` en vivo y muestra las transacciones
+creadas durante las pruebas anteriores (incluida la que falló por timeout simulado).
+
+![Vista Angular mostrando la tabla de transacciones con estados coloreados](docs/screenshots/angular-frontend.jpg)
+
+**Prueba de filtro:** al seleccionar el estado `Declined` y buscar, la tabla se actualiza
+mostrando únicamente la transacción con ese estado (`merchant-002`, $2.000.000, rechazada) —
+confirma que el filtro `GET /payments?status=Declined` funciona correctamente desde la UI, no
+solo desde Swagger/curl.
+
+---
+
+## 11. Frontend Angular — creación de pago desde el modal (formulario + validación)
+
+Arquitectura final en 3 componentes (`TransactionListComponent`, `PaymentFormModalComponent`,
+`ToastComponent`) + `ToastService`, ver ADR-010 en `DECISIONES.md`.
+
+**Validación client-side:** al intentar confirmar el formulario con el campo "Comercio" vacío,
+el envío se bloquea, el campo se marca en rojo y aparece el mensaje de error — sin ninguna
+petición HTTP disparada:
+
+![Validación del formulario mostrando el error en el campo Comercio vacío](docs/screenshots/angular-modal-validation.jpg)
+
+**Creación exitosa:** completando el formulario correctamente y confirmando, se envía
+`POST /payments` con un `Idempotency-Key` generado automáticamente (`crypto.randomUUID()`), el
+modal se cierra, aparece una notificación toast con el resultado real del backend, y la tabla
+se refresca sola mostrando la nueva transacción:
+
+![Toast de confirmación tras crear un pago exitosamente, con la tabla actualizada](docs/screenshots/angular-toast-success.jpg)
+
+**Resultado:** el frontend no solo consulta datos — ejecuta el flujo completo de creación de un
+pago contra el backend real (validación client-side + HTTP + persistencia en PostgreSQL +
+actualización de la UI), con la misma arquitectura de componentes separados por responsabilidad
+usada conceptualmente en el backend.
+
+---
+
 ## Conclusión
 
-Las 9 pruebas confirman que el backend funciona **de punta a punta, con datos reales en
-PostgreSQL**: creación, consulta, idempotencia, reglas de negocio, filtros, validaciones de
-error, y manejo de errores temporales del adquirente con reintentos y trazabilidad completa por
-logs. Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de `PROGRESO.md`.
+Las 11 secciones de prueba confirman que el sistema funciona **de punta a punta, con datos
+reales en PostgreSQL y un frontend real que tanto consulta como crea transacciones**: creación,
+consulta, idempotencia, reglas de negocio, filtros, validaciones de error (backend y frontend),
+manejo de errores temporales con reintentos y trazabilidad completa por logs, pruebas unitarias
+automatizadas, y una interfaz Angular funcional con arquitectura de componentes separados.
+Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de
+`PROGRESO.md`.

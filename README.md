@@ -24,6 +24,7 @@ completa del flujo.
 | Pruebas | xUnit |
 | Infraestructura | Docker / Docker Compose |
 | Documentación de API | Swagger / OpenAPI |
+| Frontend (opcional) | Angular 21.2.0 (TypeScript, componentes standalone) |
 
 ---
 
@@ -135,6 +136,7 @@ búsqueda con filtros) en [`PRUEBAS.md`](./PRUEBAS.md).
 | Reintentos manuales en vez de una librería como Polly | El requerimiento se cubre con ~10 líneas; no se suma una dependencia nueva para el alcance actual | ADR-008 |
 | Logging nativo (`ILogger`) en vez de Serilog | Suficiente para trazabilidad en consola durante la demo; sin dependencias adicionales | ADR-009 |
 | `Status` guardado como texto en PostgreSQL, no como entero | Legible directamente en una consulta SQL, sin recordar la equivalencia número-estado | ADR-006 |
+| Frontend en componentes separados por responsabilidad, sin NgRx | Mismo principio Single Responsibility del backend; un gestor de estado global sería sobre-ingeniería para el alcance actual | ADR-010 |
 
 Razonamiento completo de cada una, con alternativas consideradas y por qué se descartaron, en
 [`DECISIONES.md`](./DECISIONES.md).
@@ -150,9 +152,9 @@ simulando el proceso de un equipo real aunque el desarrollo fue individual:
   `feature/infrastructure-persistence`, `feature/api-endpoints`,
   `feature/error-handling-logging`, `feature/readme-architecture`, `feature/unit-tests`, entre
   otras), nunca commits directos sobre `main` salvo el scaffolding inicial.
-- **7 Pull Requests** mergeados a `main`, cada uno con su propia descripción explicando qué
-  incluye, qué decisiones de diseño conlleva y qué queda pendiente para el siguiente — [ver el
-  historial completo en
+- **Múltiples Pull Requests** mergeados a `main`, uno por cada bloque de trabajo, cada uno con
+  su propia descripción explicando qué incluye, qué decisiones de diseño conlleva y qué queda
+  pendiente para el siguiente — [ver el historial completo en
   GitHub](https://github.com/Nicolas-Espinoza-Reyes-1991/payment-processing-service/pulls?q=is%3Apr+is%3Aclosed).
 - **Mensajes de commit con [Conventional Commits](https://www.conventionalcommits.org/)**:
   prefijos `feat:`, `fix:`, `docs:`, `chore:`, `test:` según el tipo de cambio, con commits
@@ -211,6 +213,30 @@ Abrí `http://localhost:<puerto>/swagger` en el navegador para la interfaz inter
 Swagger, desde donde se pueden probar los 3 endpoints sin necesidad de Postman u otra
 herramienta externa.
 
+### 6. (Opcional) Levantar el frontend Angular
+
+Con el backend corriendo (paso 4), en **otra terminal**:
+
+```bash
+cd frontend
+npm install
+ng serve
+```
+
+Abrí `http://localhost:4200` para la vista de consulta de transacciones, con filtros por
+`merchant_id` y `status`, y un botón **"+ Nuevo pago"** que abre un modal para crear una
+transacción real contra el backend (con validación de campos en el propio formulario). Requiere
+que el backend esté corriendo en `http://localhost:5165` (CORS ya configurado en `Program.cs`
+para aceptar ese origen).
+
+**Arquitectura del frontend:** componentes separados por responsabilidad
+(`TransactionListComponent` para la tabla/filtros, `PaymentFormModalComponent` para el
+formulario de creación, `ToastComponent` + `ToastService` para notificaciones), con el
+componente raíz (`App`) como orquestador liviano — mismo principio de separación de
+responsabilidades aplicado en el backend. Detalle completo en ADR-010 de
+[`DECISIONES.md`](./DECISIONES.md). Diseño visual inspirado en la paleta e identidad
+tipográfica reales de Haulmer.
+
 ---
 
 ## Supuestos
@@ -227,6 +253,13 @@ herramienta externa.
   entorno real.
 - Los montos se validan como mayores a cero; no se definió un monto mínimo específico más allá
   de esa validación básica.
+- El PDF menciona el campo `merchant_id` (snake_case) como ejemplo; el cuerpo JSON del
+  `POST /payments` usa `merchantId` (camelCase), la convención por defecto de ASP.NET Core y la
+  más común en APIs .NET. El query string de `GET /payments` sí usa `merchant_id` (snake_case)
+  literal, tal como lo especifica el PDF para ese endpoint.
+- La validación de tarjeta se limita a formato (número presente, longitud razonable) y
+  enmascarado de los últimos 4 dígitos — no se implementó el algoritmo de Luhn ni verificación
+  de vencimiento/CVV, al no ser parte explícita del requerimiento (ver "Fuera de alcance").
 
 ---
 
@@ -301,6 +334,10 @@ decisiones ni la verificación final de cada parte del sistema.
 ├── tests/
 │   ├── Domain.Tests/
 │   └── Application.Tests/
+├── frontend/              # Angular 21 — consulta y creación de pagos (opcional)
+│   └── src/app/
+│       ├── components/    # TransactionListComponent, PaymentFormModalComponent, ToastComponent
+│       └── services/      # TransactionsService, ToastService
 ├── docs/screenshots/      # Capturas de pruebas reales
 ├── docker-compose.yml
 ├── REQUERIMIENTOS.md      # Enunciado original del desafío

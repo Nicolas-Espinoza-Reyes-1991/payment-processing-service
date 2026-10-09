@@ -798,8 +798,78 @@ realmente creó la tabla con las columnas e índices esperados.
 
 ---
 
+## `PaymentsController` — el punto de entrada HTTP
+
+Archivo `src/Api/Controllers/PaymentsController.cs`. Conecta HTTP con todo lo ya construido.
+
+- **`[ApiController]`**: activa comportamientos automáticos de ASP.NET Core (validación
+  automática del modelo, respuestas 400 automáticas si falta un campo obligatorio marcado como
+  no-nullable).
+- **`[Route("payments")]`**: prefijo de todas las rutas de la clase.
+- **DTOs de Api (`Contracts/PaymentContracts.cs`) vs DTOs de Application**: el de Api
+  (`CreatePaymentHttpRequest`) no incluye `IdempotencyKey` — se recibe por separado, vía el
+  header HTTP `Idempotency-Key` (`[FromHeader(Name = "Idempotency-Key")]`), siguiendo el patrón
+  estándar de la industria (Stripe lo hace igual), no como parte del cuerpo JSON.
+- **Consultas (`GET`) inyectan `ITransactionRepository` directamente**, sin pasar por un caso de
+  uso intermedio: al no tener ninguna regla de negocio (solo "traer datos"), crear una clase de
+  caso de uso solo para reenviar la llamada no agregaría valor. Si una consulta futura necesitara
+  lógica compleja, ahí sí se justificaría un caso de uso dedicado.
+- **`{id:guid}`** (route constraint): restringe esa parte de la URL a que solo matchee si es un
+  GUID válido — si no lo es, ASP.NET Core devuelve 404 automáticamente antes de ejecutar el
+  método.
+- **`CreatedAtAction(nameof(GetById), new { id = result.TransactionId }, result)`**: además de
+  devolver `201 Created` con el cuerpo de la respuesta, agrega un header `Location` apuntando al
+  `GET /payments/{id}` del recurso recién creado — es el estándar REST para operaciones de
+  creación.
+- **`Enum.TryParse<TransactionStatus>(status, ignoreCase: true, out var parsed)`**: convierte el
+  texto que llega por query string (ej. `?status=Approved`) al enum, devolviendo `400 Bad
+  Request` si el texto no coincide con ningún valor válido, en vez de romperse silenciosamente.
+
+## Swagger — qué es y por qué se usó para probar
+
+**Swagger** es una interfaz web que se genera automáticamente a partir del propio código
+(atributos `[HttpPost]`/`[HttpGet]` y los tipos de los DTOs), y permite probar los endpoints
+directamente desde el navegador, sin instalar nada aparte. La librería que lo genera
+(`Swashbuckle.AspNetCore`) ya venía incluida por defecto en la plantilla `webapi`, y activada en
+`Program.cs` (`app.UseSwagger(); app.UseSwaggerUI();`).
+
+**Swagger vs. Postman**: ambos son herramientas estándar de la industria. Swagger no requiere
+instalar nada ni configurar una colección — ideal para pruebas rápidas durante el desarrollo, y
+sirve además como documentación viva de la API. Postman es más adecuado para pruebas más
+elaboradas, colecciones compartidas con un equipo, o testing automatizado. Se usó Swagger acá
+por ser la opción de cero fricción para la primera prueba en vivo del backend.
+
+## Primera prueba end-to-end — `dotnet run` y resultados reales
+
+```bash
+dotnet run --project src/Api
+```
+
+Levanta el servidor Kestrel (el servidor web embebido de ASP.NET Core) en modo desarrollo,
+escuchando en `http://localhost:5165` (el puerto se asigna automáticamente, puede variar).
+
+**Pruebas realizadas contra el servidor real, con datos reales en PostgreSQL:**
+
+| Prueba | Resultado |
+|---|---|
+| `POST /payments`, monto normal | `201 Created`, `status: Approved` (2), persistido en BD |
+| Verificación de tarjeta enmascarada | `cardLast4` guardado, número completo nunca persistido |
+| `GET /payments/{id}` | Devuelve la transacción real desde PostgreSQL |
+| Reenvío de la misma petición (misma `Idempotency-Key`) | Devuelve la transacción existente — confirmado 1 sola fila en la tabla, sin duplicar |
+| `POST /payments`, monto > 1.000.000 | `201 Created`, `status: Declined` (3), código `"51"` |
+| `GET /payments?merchant_id=...&status=Declined` | Filtro funcionando correctamente |
+| `POST /payments` sin header `Idempotency-Key` | `400 Bad Request` con mensaje explicativo |
+| `GET /payments?status=NoExiste` | `400 Bad Request` con mensaje explicativo |
+
+Verificación independiente en PostgreSQL (sin pasar por la API, para confirmar que los datos
+realmente están en la base, no solo en memoria):
+```bash
+docker exec payment-processing-postgres psql -U payment_user -d payment_processing -c "SELECT \"Id\", \"MerchantId\", \"Amount\", \"Status\", \"IdempotencyKey\" FROM transactions;"
+```
+
+---
+
 ## Pendiente de documentar a medida que avancemos
 
-- Minimal API vs Controllers en ASP.NET Core
-- Inyección de dependencias en .NET
+- Inyección de dependencias en .NET (profundizar más allá de lo ya cubierto)
 - xUnit — estructura de un test, `Fact` vs `Theory`

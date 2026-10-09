@@ -22,6 +22,26 @@ explícita de Haulmer por .NET ("nos encanta muchísimo más").
 permite evaluar la solución en el stack que el equipo usa día a día, que es justamente lo que
 el PDF invita a hacer.
 
+**Por qué la versión 8 específicamente, y no una más nueva:** Microsoft publica una versión
+nueva de .NET cada noviembre, alternando entre soporte **LTS** (Long Term Support, 3 años de
+soporte) y **STS** (Standard Term Support, 18 meses). .NET 8 (lanzado noviembre 2023) es
+versión **LTS**, con soporte hasta noviembre de 2026. Se prefirió sobre una versión más nueva
+(ej. .NET 9, STS) por tres motivos:
+1. **Estabilidad en producción:** las empresas, en la práctica, migran a versiones LTS para
+   sistemas reales, no a cada versión intermedia — elegir LTS refleja una decisión de
+   ingeniería real, no solo "la más nueva disponible".
+2. **Compatibilidad de paquetes de terceros:** durante el desarrollo se confirmó este punto en
+   la práctica — `Npgsql.EntityFrameworkCore.PostgreSQL` en su versión más reciente (10.x) solo
+   soportaba .NET 10, no .NET 8 (ver detalle del error `NU1202` en `CONCEPTOS.md`). Las
+   versiones LTS tienen mayor tiempo de maduración del ecosistema de paquetes alrededor.
+3. **Soporte vigente:** con soporte hasta noviembre de 2026, .NET 8 cubre con margen la
+   duración de este desafío y cualquier evolución futura cercana del proyecto.
+
+**Historia breve de versiones de .NET (para contexto):** .NET Framework (2002-2019, solo
+Windows) → .NET Core (2016 en adelante, multiplataforma, nace como proyecto separado) → a
+partir de .NET 5 (2020) se unifican bajo el nombre simple ".NET", continuando la numeración de
+.NET Core (se saltó el "4" a propósito para no confundir con .NET Framework 4.x).
+
 **Consecuencias:** Pruebas con xUnit, ORM natural es Entity Framework Core, tipado fuerte en
 todo el dominio.
 
@@ -149,10 +169,12 @@ ejecutar el programa — convierte un bug potencial en tiempo de ejecución en u
 de cometer en tiempo de compilación. Además, el IDE autocompleta las opciones válidas, lo que
 reduce errores y acelera el desarrollo.
 
-**Consecuencia práctica:** al persistir en PostgreSQL, EF Core guarda el `enum` como entero por
-defecto (0, 1, 2...); se evaluará más adelante si conviene mapearlo explícitamente a texto en
-la base de datos para que sea legible directamente en una consulta SQL sin tener que recordar
-la equivalencia número→estado (se documentará la decisión final al configurar EF Core).
+**Consecuencia práctica — resuelto:** al configurar `PaymentProcessingDbContext`, se decidió
+mapear `Status` explícitamente a texto en PostgreSQL con `HasConversion<string>()`, en vez de
+dejar el comportamiento por defecto de EF Core (guardarlo como entero: 0, 1, 2...). Así una
+consulta SQL directa (`SELECT * FROM transactions WHERE status = 'Approved'`) es legible sin
+tener que recordar la equivalencia número→estado — prioriza la trazabilidad y el debugging
+manual por sobre el mínimo ahorro de espacio en disco de guardar un entero.
 
 ---
 

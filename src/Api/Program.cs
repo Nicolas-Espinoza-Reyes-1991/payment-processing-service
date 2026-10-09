@@ -1,11 +1,23 @@
+using Microsoft.EntityFrameworkCore;
+using PaymentProcessingService.Application.Abstractions;
+using PaymentProcessingService.Application.UseCases;
+using PaymentProcessingService.Infrastructure.Persistence;
+using PaymentProcessingService.Infrastructure.Acquiring;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddDbContext<PaymentProcessingDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("PaymentProcessingDb")));
+
+builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
+builder.Services.AddScoped<IAcquirerClient, AcquirerMockClient>();
+builder.Services.AddScoped<CreatePaymentUseCase>();
 
 var app = builder.Build();
 

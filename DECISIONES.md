@@ -395,3 +395,35 @@ explícitamente del middleware de API Key).
 Los 5 hallazgos se probaron en vivo contra el servidor real (ver `PRUEBAS.md`, sección 13), y
 los 18 tests unitarios (14 Domain + 4 Application, subieron de 14 a 18 con las nuevas
 validaciones de largo) siguen pasando sin regresiones tras todos los cambios.
+
+---
+
+## ADR-012: Idempotencia — detectar reuso de la misma clave con datos distintos
+
+**Contexto:** la implementación original de idempotencia (ADR-007) solo verificaba si la
+`IdempotencyKey` ya existía — si existía, devolvía la transacción guardada **sin comparar** si
+los datos del nuevo request (monto, comercio, moneda) coincidían con los originales. Un cliente
+que reusara una clave por error, con datos distintos, recibía silenciosamente la transacción
+vieja, sin ningún aviso de la inconsistencia.
+
+**Decisión:** se agregó una comparación explícita en `CreatePaymentUseCase.ExecuteAsync`: si la
+clave existe pero `MerchantId`/`Amount`/`Currency` no coinciden con el request original, se
+lanza `IdempotencyConflictException`, traducida por el controller a `409 Conflict` con un
+mensaje explicando el conflicto. El frontend Angular ya estaba preparado para mostrar cualquier
+mensaje de error del backend (banner dentro del modal + toast), sin necesitar cambios
+adicionales más allá de también disparar el toast en el flujo de error.
+
+**Por qué esto protege algo real, aunque el propio frontend nunca lo dispare:** el frontend
+Angular genera una `IdempotencyKey` nueva (`crypto.randomUUID()`) en cada envío — por diseño,
+nunca reutiliza una clave, así que nunca va a disparar este escenario por sí mismo. Pero la API
+no es consumida únicamente por este frontend: en un escenario real, cualquier otro cliente
+(el backend del propio comercio, una integración de terceros, pruebas manuales con
+Postman/`curl`) podría reutilizar una clave por error. La validación protege la API contra
+**cualquier** cliente, no solo el que construimos nosotros — mismo principio de "no confiar
+ciegamente en el cliente" aplicado ya en las validaciones de Domain.
+
+**Verificación:** probado directamente contra la API real (no vía UI, porque el frontend nunca
+genera este escenario por diseño): reenvío de la misma clave con monto distinto → `409` con el
+mensaje esperado; reenvío con los mismos datos → sigue devolviendo la transacción original sin
+duplicar, sin regresión. Test unitario agregado en `Application.Tests` reproduciendo el mismo
+escenario de forma determinística. 19/19 tests pasando.

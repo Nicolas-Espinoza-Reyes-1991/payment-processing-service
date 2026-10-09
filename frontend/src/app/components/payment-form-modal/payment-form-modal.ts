@@ -59,7 +59,9 @@ export class PaymentFormModalComponent {
       },
       error: (err) => {
         this.submitting.set(false);
-        this.submitError.set(err.error?.error ?? 'Ocurrió un error al crear el pago.');
+        const message = err.error?.error ?? 'Ocurrió un error al crear el pago.';
+        this.submitError.set(message);
+        this.toastService.show(message, 'error');
       }
     });
   }

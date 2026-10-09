@@ -19,6 +19,13 @@ public record CreatePaymentResponse(
     string? AcquirerResponseCode,
     string? AcquirerMessage);
 
+public class IdempotencyConflictException : Exception
+{
+    public IdempotencyConflictException(string message) : base(message)
+    {
+    }
+}
+
 public class CreatePaymentUseCase
 {
     private const int MaxAcquirerAttempts = 3;
@@ -42,6 +49,22 @@ public class CreatePaymentUseCase
         var existing = await _transactionRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey);
         if (existing is not null)
         {
+            var datosCoinciden =
+                existing.MerchantId == request.MerchantId &&
+                existing.Amount == request.Amount &&
+                existing.Currency == request.Currency;
+
+            if (!datosCoinciden)
+            {
+                _logger.LogWarning(
+                    "Idempotencia: la clave {IdempotencyKey} ya fue usada con datos distintos (transacción existente {TransactionId})",
+                    request.IdempotencyKey, existing.Id);
+
+                throw new IdempotencyConflictException(
+                    "Esta Idempotency-Key ya fue utilizada con datos distintos (otro monto, comercio o moneda). " +
+                    "Usá una clave nueva para procesar una transacción diferente.");
+            }
+
             _logger.LogInformation(
                 "Idempotencia: solicitud repetida para {IdempotencyKey}, devolviendo transacción existente {TransactionId} (CorrelationId: {CorrelationId})",
                 request.IdempotencyKey, existing.Id, existing.CorrelationId);

@@ -47,6 +47,29 @@ public class CreatePaymentUseCaseTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_MismaIdempotencyKeyConDatosDistintos_LanzaIdempotencyConflictException()
+    {
+        var repository = new FakeTransactionRepository();
+        var acquirer = FakeAcquirerClient.ThatApproves();
+        var useCase = new CreatePaymentUseCase(repository, acquirer, NullLogger<CreatePaymentUseCase>.Instance);
+
+        await useCase.ExecuteAsync(CrearSolicitudValida("key-conflicto"));
+
+        var solicitudConMontoDistinto = new CreatePaymentRequest(
+            MerchantId: "merchant-001",
+            Amount: 99999m,
+            Currency: "CLP",
+            CardNumber: "4111111111111234",
+            CardBrand: "Visa",
+            IdempotencyKey: "key-conflicto");
+
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+            useCase.ExecuteAsync(solicitudConMontoDistinto));
+
+        Assert.Equal(1, repository.Count);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AdquirenteRechaza_TransaccionQuedaDeclined()
     {
         var repository = new FakeTransactionRepository();

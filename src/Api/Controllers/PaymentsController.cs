@@ -51,6 +51,12 @@ public class PaymentsController : ControllerBase
             // global las trate como un error interno (500).
             return BadRequest(new { error = ex.Message });
         }
+        catch (IdempotencyConflictException ex)
+        {
+            // La misma Idempotency-Key se reusó con datos distintos al request original.
+            // 409 Conflict: el request choca con el estado actual del servidor.
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     [HttpGet("{id:guid}")]

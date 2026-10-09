@@ -205,8 +205,69 @@ transacción esperada.
 
 ---
 
+## 8. Manejo de errores temporales del adquirente — reintentos y estado `Failed`
+
+Se usó la tarjeta terminada en `9999` (disparador determinístico configurado en
+`AcquirerMockClient`, ver ADR-008 en `DECISIONES.md`) para simular que el adquirente no
+responde a tiempo.
+
+**Request:**
+```http
+POST /payments
+Idempotency-Key: test-timeout-001
+Content-Type: application/json
+
+{
+  "merchantId": "merchant-003",
+  "amount": 5000,
+  "currency": "CLP",
+  "cardNumber": "4111111111119999",
+  "cardBrand": "Visa"
+}
+```
+
+**Response — `201 Created`:**
+```json
+{
+  "transactionId": "23834103-537e-4694-8e74-d4832bf937de",
+  "status": 4,
+  "correlationId": "a0a1d8c1-d63d-4509-a52d-d2e96978d1ae",
+  "acquirerResponseCode": null,
+  "acquirerMessage": "Acquirer Mock: tiempo de espera agotado (simulado)."
+}
+```
+
+`status: 4` = `Failed` — tras agotar los 3 reintentos, la transacción queda en un estado final
+explícito, nunca ambigua.
+
+**Logs reales del servidor, capturados en vivo durante esta misma petición** (recortados a los
+logs propios de la aplicación; se omiten los `info` de SQL generados por EF Core):
+
+```
+info: PaymentProcessingService.Application.UseCases.CreatePaymentUseCase[0]
+      Transaccion 23834103-537e-4694-8e74-d4832bf937de creada en estado Pending (CorrelationId: a0a1d8c1-d63d-4509-a52d-d2e96978d1ae)
+info: PaymentProcessingService.Application.UseCases.CreatePaymentUseCase[0]
+      Transaccion 23834103-537e-4694-8e74-d4832bf937de pasó a Processing (CorrelationId: a0a1d8c1-d63d-4509-a52d-d2e96978d1ae)
+warn: PaymentProcessingService.Application.UseCases.CreatePaymentUseCase[0]
+      Intento 1/3 fallido contra el adquirente para transaccion 23834103-537e-4694-8e74-d4832bf937de (CorrelationId: a0a1d8c1-d63d-4509-a52d-d2e96978d1ae): Acquirer Mock: tiempo de espera agotado (simulado).
+warn: PaymentProcessingService.Application.UseCases.CreatePaymentUseCase[0]
+      Intento 2/3 fallido contra el adquirente para transaccion 23834103-537e-4694-8e74-d4832bf937de (CorrelationId: a0a1d8c1-d63d-4509-a52d-d2e96978d1ae): Acquirer Mock: tiempo de espera agotado (simulado).
+warn: PaymentProcessingService.Application.UseCases.CreatePaymentUseCase[0]
+      Intento 3/3 fallido contra el adquirente para transaccion 23834103-537e-4694-8e74-d4832bf937de (CorrelationId: a0a1d8c1-d63d-4509-a52d-d2e96978d1ae): Acquirer Mock: tiempo de espera agotado (simulado).
+fail: PaymentProcessingService.Application.UseCases.CreatePaymentUseCase[0]
+      Transaccion 23834103-537e-4694-8e74-d4832bf937de marcada como Failed tras 3 intentos fallidos (CorrelationId: a0a1d8c1-d63d-4509-a52d-d2e96978d1ae)
+```
+
+**Resultado clave:** se puede seguir el ciclo de vida completo de la transacción
+(`Pending → Processing → 3 intentos fallidos → Failed`) filtrando únicamente por el
+`CorrelationId` — exactamente la trazabilidad que pide el PDF, demostrada con logs reales, no
+solo en teoría.
+
+---
+
 ## Conclusión
 
-Las 8 pruebas confirman que el backend funciona **de punta a punta, con datos reales en
-PostgreSQL**: creación, consulta, idempotencia, reglas de negocio, filtros y validaciones de
-error. Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de `PROGRESO.md`.
+Las 9 pruebas confirman que el backend funciona **de punta a punta, con datos reales en
+PostgreSQL**: creación, consulta, idempotencia, reglas de negocio, filtros, validaciones de
+error, y manejo de errores temporales del adquirente con reintentos y trazabilidad completa por
+logs. Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de `PROGRESO.md`.

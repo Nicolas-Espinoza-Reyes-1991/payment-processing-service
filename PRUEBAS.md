@@ -8,6 +8,12 @@
 Fecha de las pruebas: 2026-10-09
 Servidor: `http://localhost:5165` (puerto asignado automáticamente por Kestrel)
 
+> **Nota sobre el header `X-Api-Key`:** las secciones 1-12 se capturaron **antes** de agregar
+> el control de autenticación (ver sección 13 y ADR-011), por eso sus ejemplos de request no
+> incluyen el header `X-Api-Key` — en ese momento la API todavía no lo exigía. Desde la
+> sección 13 en adelante, y en el estado actual del proyecto, **todos** los endpoints de
+> `/payments` requieren ese header (ver README, sección "Autenticación").
+
 ---
 
 ## 1. Swagger UI — documentación viva de la API
@@ -320,12 +326,109 @@ usada conceptualmente en el backend.
 
 ---
 
+## 12. Hallazgo de revisión final — código de estado incorrecto en validaciones de negocio
+
+Durante la revisión de seguridad previa a la entrega, se detectó que las validaciones de
+`Transaction.Create()` (ej. monto inválido, `merchant_id` vacío) lanzaban una `ArgumentException`
+que nadie capturaba entre Domain y el controller — el middleware global de excepciones la
+trataba como un error interno genérico, devolviendo `500` en vez de `400`.
+
+**No era una falla de la validación en sí** (la transacción inválida nunca se creaba), sino del
+código de estado HTTP comunicado al cliente — semánticamente incorrecto para un error de datos
+de entrada.
+
+**Antes de la corrección:**
+```json
+POST /payments  { "amount": -500, ... }
+→ 500 { "error": "Ocurrió un error interno inesperado. Contacte a soporte si el problema persiste." }
+```
+
+**Corrección aplicada:** se agregó un `catch (ArgumentException ex)` en `PaymentsController.Create`,
+traduciendo las excepciones de validación del dominio a `400 Bad Request` con el mensaje
+específico, en el límite HTTP (responsabilidad de la capa Api, no de Domain/Application).
+
+**Después de la corrección, probado en vivo:**
+```json
+POST /payments  { "amount": -500, ... }
+→ 400 { "error": "El monto debe ser mayor a cero. (Parameter 'amount')" }
+
+POST /payments  { "merchantId": "", ... }
+→ 400 { "error": "merchant_id es obligatorio. (Parameter 'merchantId')" }
+
+POST /payments  { "merchantId": "merchant-001", "amount": 5000, ... }  (caso válido)
+→ 201 Created  (sin regresión)
+```
+
+Se confirmó además que los 14 tests unitarios (`dotnet test`) siguen pasando sin regresiones
+tras el cambio.
+
+---
+
+## 13. Revisión de seguridad final — 4 hallazgos adicionales y correcciones
+
+Continuación de la revisión de seguridad (sección 12), con 4 hallazgos más — ver razonamiento
+completo en ADR-011 de `DECISIONES.md`.
+
+### 13.1 — API Key agregada y probada en vivo
+
+```
+GET /payments                                           (sin header)  → 401
+GET /payments  X-Api-Key: clave-incorrecta               (clave mala)  → 401
+GET /payments  X-Api-Key: haulmer-demo-api-key-2026      (clave OK)    → 200
+```
+
+Swagger configurado con esquema de seguridad (botón "Authorize"); el frontend Angular adjunta
+la clave automáticamente vía `apiKeyInterceptor`, verificado cargando la tabla de transacciones
+end-to-end con la clave aplicada.
+
+### 13.2 — Validación de largo agregada al Domain (mismo patrón del hallazgo anterior)
+
+```
+POST /payments  { "merchantId": "x".repeat(200), ... }
+→ Antes:   500 "Ocurrió un error interno inesperado..."
+→ Después: 400 "merchant_id no puede superar los 100 caracteres. (Parameter 'merchantId')"
+```
+
+Se agregaron 4 tests nuevos en `Domain.Tests` (`merchantId` largo, moneda de largo inválido,
+`idempotencyKey` larga) — de 14 a **18 tests totales**, todos pasando.
+
+### 13.3 — Paquetes NuGet vulnerables actualizados
+
+```bash
+dotnet list package --vulnerable --include-transitive
+```
+**Antes:** `System.Net.Http` y `System.Text.RegularExpressions` 4.3.0 (severidad "High"),
+transitivos en los proyectos de test.
+**Después:** actualizados `Microsoft.NET.Test.Sdk`, `xunit`, `xunit.runner.visualstudio`,
+`coverlet.collector` a sus últimas versiones compatibles con .NET 8 — confirmado: **0 paquetes
+vulnerables en los 6 proyectos** de la solución. `npm audit` del frontend: 0 vulnerabilidades
+desde el principio.
+
+### 13.4 — Resiliencia de conexión y health check
+
+- `EnableRetryOnFailure(maxRetryCount: 3)` agregado a la configuración de `UseNpgsql`.
+- `GET /health` agregado, probado sin header de autenticación:
+```
+GET /health → 200 "Healthy"
+```
+
+### Verificación final
+
+```bash
+dotnet build   # 0 errores
+dotnet test    # 18/18 pasando
+```
+
+---
+
 ## Conclusión
 
-Las 11 secciones de prueba confirman que el sistema funciona **de punta a punta, con datos
+Las 13 secciones de prueba confirman que el sistema funciona **de punta a punta, con datos
 reales en PostgreSQL y un frontend real que tanto consulta como crea transacciones**: creación,
 consulta, idempotencia, reglas de negocio, filtros, validaciones de error (backend y frontend),
-manejo de errores temporales con reintentos y trazabilidad completa por logs, pruebas unitarias
-automatizadas, y una interfaz Angular funcional con arquitectura de componentes separados.
-Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de
+manejo de errores temporales con reintentos, trazabilidad completa por logs, 18 pruebas
+unitarias automatizadas, una interfaz Angular funcional con arquitectura de componentes
+separados, y una revisión de seguridad final que detectó y corrigió 5 hallazgos reales antes de
+la entrega (autenticación, validación de datos, dependencias vulnerables, resiliencia de
+conexión, monitoreo). Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de
 `PROGRESO.md`.

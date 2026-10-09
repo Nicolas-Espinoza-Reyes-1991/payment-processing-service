@@ -88,15 +88,20 @@ temporal con reintentos, en la sección 8 de [`PRUEBAS.md`](./PRUEBAS.md).
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `POST` | `/payments` | Crea una solicitud de pago. Requiere header `Idempotency-Key`. |
-| `GET` | `/payments/{id}` | Consulta una transacción por su id. |
-| `GET` | `/payments?merchant_id=&status=` | Busca transacciones, con filtros opcionales combinables. |
+| `POST` | `/payments` | Crea una solicitud de pago. Requiere headers `X-Api-Key` e `Idempotency-Key`. |
+| `GET` | `/payments/{id}` | Consulta una transacción por su id. Requiere `X-Api-Key`. |
+| `GET` | `/payments?merchant_id=&status=` | Busca transacciones, con filtros opcionales combinables. Requiere `X-Api-Key`. |
+| `GET` | `/health` | Health check — sin autenticación, para monitoreo/orquestación. |
+
+Todos los endpoints de `/payments` requieren el header `X-Api-Key` (ver sección
+[Autenticación](#autenticación)).
 
 ### Ejemplo — crear un pago
 
 **Request:**
 ```http
 POST /payments
+X-Api-Key: haulmer-demo-api-key-2026
 Idempotency-Key: order-00123
 Content-Type: application/json
 
@@ -137,9 +142,27 @@ búsqueda con filtros) en [`PRUEBAS.md`](./PRUEBAS.md).
 | Logging nativo (`ILogger`) en vez de Serilog | Suficiente para trazabilidad en consola durante la demo; sin dependencias adicionales | ADR-009 |
 | `Status` guardado como texto en PostgreSQL, no como entero | Legible directamente en una consulta SQL, sin recordar la equivalencia número-estado | ADR-006 |
 | Frontend en componentes separados por responsabilidad, sin NgRx | Mismo principio Single Responsibility del backend; un gestor de estado global sería sobre-ingeniería para el alcance actual | ADR-010 |
+| API Key en vez de OAuth2/JWT completo | Control mínimo razonable para no dejar la API abierta; un esquema de usuarios completo es alcance mucho mayor | ADR-011 |
 
 Razonamiento completo de cada una, con alternativas consideradas y por qué se descartaron, en
 [`DECISIONES.md`](./DECISIONES.md).
+
+---
+
+## Autenticación
+
+Todos los endpoints de `/payments` requieren el header `X-Api-Key` con el valor configurado en
+`appsettings.Development.json` (`Security:ApiKey`, por defecto `haulmer-demo-api-key-2026` para
+este entorno de desarrollo). Sin ese header, o con un valor incorrecto, la API responde
+`401 Unauthorized`. El endpoint `/health` está exento, para permitir monitoreo sin autenticación.
+
+En Swagger, usá el botón **"Authorize"** (arriba a la derecha) para cargar la clave una sola vez
+y que se adjunte automáticamente en cada prueba. El frontend Angular la adjunta solo, vía un
+interceptor HTTP (`apiKeyInterceptor`).
+
+Es un control básico, apropiado para este desafío — en producción real correspondería una API
+Key por comercio (guardada hasheada en base de datos) o un esquema más robusto como OAuth2/JWT.
+Detalle completo en ADR-011 de [`DECISIONES.md`](./DECISIONES.md).
 
 ---
 
@@ -211,7 +234,9 @@ El servidor queda escuchando en el puerto que indique la consola (ej.
 
 Abrí `http://localhost:<puerto>/swagger` en el navegador para la interfaz interactiva de
 Swagger, desde donde se pueden probar los 3 endpoints sin necesidad de Postman u otra
-herramienta externa.
+herramienta externa. Hacé clic en **"Authorize"** y pegá la API Key
+(`haulmer-demo-api-key-2026`, configurada en `appsettings.Development.json`) antes de probar
+cualquier endpoint de `/payments` — ver sección [Autenticación](#autenticación).
 
 ### 6. (Opcional) Levantar el frontend Angular
 
@@ -248,9 +273,10 @@ tipográfica reales de Haulmer.
 - El Acquirer Mock simula: aprobación por defecto, rechazo si el monto supera $1.000.000
   (código `"51"`, fondos insuficientes), y un timeout simulado si la tarjeta termina en `9999`
   (código de prueba determinístico, para poder reproducir el escenario de error a demanda).
-- No se implementó autenticación/autorización en los endpoints, al no estar especificada en el
-  requerimiento — se asume que este servicio correría detrás de un gateway/API Manager en un
-  entorno real.
+- El control de autenticación (`X-Api-Key`) usa una clave fija en texto plano
+  (`appsettings.Development.json`), apropiada solo para este entorno de demostración — en
+  producción se gestionaría como las credenciales de base de datos (secreto externo, no en
+  texto plano en el repositorio).
 - Los montos se validan como mayores a cero; no se definió un monto mínimo específico más allá
   de esa validación básica.
 - El PDF menciona el campo `merchant_id` (snake_case) como ejemplo; el cuerpo JSON del
@@ -271,8 +297,9 @@ contemplado":
 
 - **Gestión de secretos**: migrar credenciales de `appsettings`/`docker-compose` a un gestor
   externo (Key Vault, Secrets Manager, variables de entorno inyectadas en el pipeline de CI/CD).
-- **Autenticación y autorización**: agregar un esquema de autenticación (API Key, OAuth2/JWT)
-  para los endpoints, actualmente abiertos.
+- **Autenticación y autorización más robusta**: ya hay un control básico de API Key (ver
+  sección "Autenticación" y ADR-011); en producción real correspondería API Keys por comercio
+  (hasheadas en base de datos) o un esquema de usuarios con OAuth2/JWT.
 - **Resiliencia más sofisticada**: si el volumen de transacciones lo justificara, reemplazar el
   bucle de reintentos manual por una librería como Polly (circuit breaker, jitter, fallback).
 - **Observabilidad centralizada**: exportar los logs estructurados a un backend como Seq,
@@ -281,6 +308,14 @@ contemplado":
 - **CI/CD**: pipeline automatizado de build, test y despliegue (GitHub Actions u otro).
 - **Validación de tarjeta más robusta**: algoritmo de Luhn u otra validación de formato, más
   allá del enmascarado de los últimos 4 dígitos ya implementado.
+- **Procesamiento asíncrono de la llamada al adquirente**: hoy `CreatePaymentUseCase` llama al
+  adquirente de forma síncrona, bloqueando la respuesta HTTP hasta tener el resultado final. A
+  escala de producción real, esto se desacoplaría con una cola de mensajes (RabbitMQ, AWS SQS):
+  el comercio recibiría `202 Accepted` de inmediato, un *worker* en segundo plano procesaría la
+  autorización, y el resultado final se notificaría vía webhook — evitando que una llamada lenta
+  al adquirente bloquee el hilo HTTP principal. No se implementó porque el alcance y el tiempo
+  del desafío no lo requerían, pero es el paso evolutivo natural si el volumen de transacciones
+  lo justificara.
 
 ---
 
@@ -337,7 +372,8 @@ decisiones ni la verificación final de cada parte del sistema.
 ├── frontend/              # Angular 21 — consulta y creación de pagos (opcional)
 │   └── src/app/
 │       ├── components/    # TransactionListComponent, PaymentFormModalComponent, ToastComponent
-│       └── services/      # TransactionsService, ToastService
+│       ├── services/      # TransactionsService, ToastService
+│       └── interceptors/  # apiKeyInterceptor — adjunta X-Api-Key automáticamente
 ├── docs/screenshots/      # Capturas de pruebas reales
 ├── docker-compose.yml
 ├── REQUERIMIENTOS.md      # Enunciado original del desafío

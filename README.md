@@ -264,6 +264,36 @@ tipográfica reales de Haulmer.
 
 ---
 
+## Guía rápida de pruebas (para quien evalúe el proyecto)
+
+Con el backend corriendo (ver sección anterior), esta tabla cubre los escenarios principales
+del desafío — podés probarlos directamente desde Swagger (`http://localhost:<puerto>/swagger`).
+
+**Antes que nada:** hacé clic en **"Authorize"** (arriba a la derecha de Swagger) y pegá:
+```
+haulmer-demo-api-key-2026
+```
+
+| # | Qué probar | Cómo | Resultado esperado |
+|---|---|---|---|
+| 1 | Crear un pago aprobado | `POST /payments`, header `Idempotency-Key: test-1`, body con `amount: 1000` | `201 Created`, `status: 2` (Approved) |
+| 2 | Crear un pago rechazado | Igual al anterior, con `amount: 2000000` (supera el límite) | `201`, `status: 3` (Declined), `acquirerResponseCode: "51"` |
+| 3 | Simular un error temporal del adquirente | Igual al #1, con `cardNumber` terminando en `9999` | `201`, `status: 4` (Failed) — mirá la consola del servidor: vas a ver 3 reintentos (`warn`) antes del `fail` |
+| 4 | Idempotencia — repetir una solicitud | Repetir el request #1 con el **mismo** `Idempotency-Key: test-1` y los **mismos** datos | `201`, misma `transactionId` que el #1 — no crea una transacción nueva |
+| 5 | Idempotencia — detectar conflicto | Repetir el `Idempotency-Key: test-1`, pero con `amount` **distinto** | `409 Conflict`, con mensaje explicando el conflicto |
+| 6 | Validación — monto inválido | `POST /payments` con `amount: -100` | `400 Bad Request` |
+| 7 | Validación — comercio vacío | `POST /payments` con `merchantId: ""` | `400 Bad Request` |
+| 8 | Falta el header de idempotencia | `POST /payments` sin `Idempotency-Key` | `400 Bad Request` |
+| 9 | Sin autenticación | Cualquier request a `/payments` sin `X-Api-Key` (o con el botón "Authorize" sin usar) | `401 Unauthorized` |
+| 10 | Consultar una transacción por id | `GET /payments/{id}`, con el `transactionId` de cualquier prueba anterior | `200 OK`, con los datos completos |
+| 11 | Buscar con filtros | `GET /payments?merchant_id=merchant-001&status=Approved` | `200 OK`, lista filtrada |
+| 12 | Health check (sin autenticación) | `GET /health` | `200 OK`, `"Healthy"` |
+
+Evidencia detallada de cada uno de estos escenarios (requests, responses reales, y capturas),
+ya ejecutada por el desarrollador, en [`PRUEBAS.md`](./PRUEBAS.md).
+
+---
+
 ## Supuestos
 
 - Las credenciales de PostgreSQL en `docker-compose.yml` y `appsettings.Development.json` están

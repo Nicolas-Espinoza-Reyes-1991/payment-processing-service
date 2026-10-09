@@ -423,12 +423,46 @@ dotnet test    # 18/18 pasando
 
 ## Conclusión
 
-Las 13 secciones de prueba confirman que el sistema funciona **de punta a punta, con datos
+## 14. Idempotencia — detección de reuso de clave con datos distintos
+
+Mejora identificada tras la revisión de seguridad: la idempotencia original no detectaba si una
+`Idempotency-Key` repetida venía con datos distintos al request original (ver ADR-012).
+
+**Caso normal (sin cambios, sigue funcionando):**
+```
+POST /payments  Idempotency-Key: conflict-live-test  { amount: 1000, ... }
+→ 201 Created (transacción nueva)
+
+POST /payments  Idempotency-Key: conflict-live-test  { amount: 1000, ... }  (mismos datos)
+→ 201 Created (misma transacción, sin duplicar)
+```
+
+**Caso nuevo — conflicto detectado:**
+```
+POST /payments  Idempotency-Key: conflict-live-test  { amount: 50000, ... }  (monto distinto)
+→ 409 Conflict
+  {
+    "error": "Esta Idempotency-Key ya fue utilizada con datos distintos (otro monto, comercio
+    o moneda). Usá una clave nueva para procesar una transacción diferente."
+  }
+```
+
+**Nota sobre por qué no se puede reproducir desde la UI de Angular:** el frontend genera una
+`Idempotency-Key` nueva (`crypto.randomUUID()`) en cada envío del formulario — por diseño, nunca
+reutiliza una clave, así que este escenario nunca ocurre al usar la aplicación normalmente. Se
+probó directamente contra la API (el nivel donde la validación realmente vive), protegiendo
+contra cualquier otro cliente que sí pudiera reutilizar una clave por error. Test unitario
+agregado reproduciendo el mismo escenario de forma determinística — 19/19 tests pasando.
+
+---
+
+## Conclusión
+
+Las 14 secciones de prueba confirman que el sistema funciona **de punta a punta, con datos
 reales en PostgreSQL y un frontend real que tanto consulta como crea transacciones**: creación,
-consulta, idempotencia, reglas de negocio, filtros, validaciones de error (backend y frontend),
-manejo de errores temporales con reintentos, trazabilidad completa por logs, 18 pruebas
-unitarias automatizadas, una interfaz Angular funcional con arquitectura de componentes
-separados, y una revisión de seguridad final que detectó y corrigió 5 hallazgos reales antes de
-la entrega (autenticación, validación de datos, dependencias vulnerables, resiliencia de
-conexión, monitoreo). Checklist detallado de requerimientos cubiertos: ver secciones 3 y 4 de
-`PROGRESO.md`.
+consulta, idempotencia (incluyendo detección de conflictos), reglas de negocio, filtros,
+validaciones de error (backend y frontend), manejo de errores temporales con reintentos,
+trazabilidad completa por logs, 19 pruebas unitarias automatizadas, una interfaz Angular
+funcional con arquitectura de componentes separados, y una revisión de seguridad final que
+detectó y corrigió 6 hallazgos reales antes de la entrega. Checklist detallado de
+requerimientos cubiertos: ver secciones 3 y 4 de `PROGRESO.md`.

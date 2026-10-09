@@ -39,9 +39,18 @@ public class PaymentsController : ControllerBase
             request.CardBrand,
             idempotencyKey);
 
-        var result = await _createPaymentUseCase.ExecuteAsync(useCaseRequest);
-
-        return CreatedAtAction(nameof(GetById), new { id = result.TransactionId }, result);
+        try
+        {
+            var result = await _createPaymentUseCase.ExecuteAsync(useCaseRequest);
+            return CreatedAtAction(nameof(GetById), new { id = result.TransactionId }, result);
+        }
+        catch (ArgumentException ex)
+        {
+            // Las validaciones de reglas de negocio (Transaction.Create) lanzan ArgumentException;
+            // se traducen a 400 acá, en el límite HTTP, en vez de dejar que el middleware
+            // global las trate como un error interno (500).
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpGet("{id:guid}")]

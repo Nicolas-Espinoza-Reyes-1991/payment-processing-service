@@ -74,12 +74,12 @@ o se referenciará un archivo en `/docs`)_
 
 ## 5. Entregables
 
-- [ ] Código fuente en repositorio Git
-- [ ] `README.md` con arquitectura y decisiones técnicas
-- [ ] Instrucciones de ejecución local
-- [ ] Supuestos documentados
-- [ ] Dockerfile / docker-compose (opcional)
-- [ ] Pruebas unitarias / de reglas de negocio (opcional)
+- [x] Código fuente en repositorio Git — GitHub, 6 PRs mergeados a `main`
+- [x] `README.md` con arquitectura y decisiones técnicas
+- [x] Instrucciones de ejecución local — paso a paso en `README.md`
+- [x] Supuestos documentados — sección dedicada en `README.md`
+- [x] Dockerfile / docker-compose (opcional) — PostgreSQL vía `docker-compose.yml`
+- [x] Pruebas unitarias / de reglas de negocio (opcional) — 14 tests xUnit, 0 fallos
 
 ---
 
@@ -109,6 +109,8 @@ desafío)_
 | 2026-10-09 | Creado `TransactionRepository` (implementación real de `ITransactionRepository`). Creado `AcquirerMockClient` (implementación de `IAcquirerClient`, adelantado por necesidad del árbol de dependencias). Cadena de conexión agregada en `appsettings.Development.json`. `Program.cs` configurado con `AddDbContext` + `AddScoped` para las 3 piezas (repositorio, acquirer mock, caso de uso). Migración `InitialCreate` generada y aplicada: tabla `transactions` creada y verificada directamente en PostgreSQL. `dotnet build` limpio (0 errores). |
 | 2026-10-09 | Creado `PaymentsController` (`POST /payments`, `GET /payments/{id}`, `GET /payments?merchant_id=&status=`) y los DTOs en `Contracts/`. Archivos de plantilla (`WeatherForecast*`) eliminados. Servidor probado en vivo con `dotnet run` + Swagger: creación de pago aprobado y rechazado (regla de monto máximo), idempotencia verificada (misma petición repetida no duplica fila en BD), consulta por id y por filtros, y validaciones de error (`400` sin header `Idempotency-Key`, `400` con `status` inválido). **Backend funcional end-to-end confirmado.** |
 | 2026-10-09 | ADR-008 (manejo de errores temporales) y ADR-009 (logging) definidos. `AcquirerMockClient` simula timeout determinístico (tarjeta `...9999`). `CreatePaymentUseCase` con reintentos (3 intentos, backoff simple) y logging estructurado con `ILogger` nativo, incluyendo `CorrelationId` en cada log. Middleware global de excepciones agregado en `Program.cs` (`500` genérico, sin exponer detalles internos). Probado en vivo: ciclo completo `Pending → Processing → 3 reintentos → Failed` visible en logs reales, capturado en `PRUEBAS.md`. |
+| 2026-10-09 | README.md completo: arquitectura, flujo de transacción, endpoints, decisiones destacadas, instrucciones de ejecución, supuestos, alcance fuera del desafío, y uso de IA. |
+| 2026-10-09 | Tests unitarios: 10 tests en `Domain.Tests` (reglas de negocio y transiciones de estado de `Transaction`) y 4 en `Application.Tests` (`CreatePaymentUseCase`, con fakes hechos a mano para `ITransactionRepository`/`IAcquirerClient`, sin librerías de mocking). 14/14 tests pasando. |
 
 ---
 

@@ -889,7 +889,54 @@ de depender de que "por azar" ocurra. Ver justificación completa en ADR-008 de 
 
 ---
 
+## Tests unitarios — xUnit, Test Doubles y por qué sin librerías de mocking
+
+### `[Fact]` vs `[Theory]`
+
+- **`[Fact]`**: un test de un solo caso fijo.
+- **`[Theory]` + `[InlineData(...)]`**: un test parametrizado — la misma lógica corre varias
+  veces con distintos valores de entrada, sin duplicar código (usado en
+  `Create_ConMontoInvalido_LanzaArgumentException`, probando `0` y `-100` con un solo test).
+
+### Aserciones usadas
+
+- **`Assert.Equal(esperado, real)`**: compara dos valores.
+- **`Assert.Throws<TException>(() => ...)`**: verifica que el código del lambda lance
+  exactamente esa excepción.
+
+### Test Doubles hechos a mano (`FakeTransactionRepository`, `FakeAcquirerClient`)
+
+Como `CreatePaymentUseCase` solo depende de interfaces (Inversión de Dependencias, principio D
+de SOLID), se pudieron crear implementaciones falsas simples, en memoria, sin ninguna librería
+de mocking (Moq, NSubstitute): `FakeTransactionRepository` usa una `List<Transaction>` interna;
+`FakeAcquirerClient` usa el patrón Factory Method (`ThatApproves()`, `ThatDeclines()`,
+`ThatAlwaysFails()`) para configurar el comportamiento esperado desde cada test, con un
+`CallCount` para verificar cuántas veces se invocó (clave para probar los reintentos).
+
+**Por qué sin una librería de mocking:** mismo criterio aplicado en ADR-008/009 — para la
+cantidad de interfaces del proyecto (2), escribir los fakes a mano es simple, explícito, y no
+suma una dependencia nueva. En un proyecto con muchas más interfaces, una librería de mocking
+(Moq es la más común en .NET) evitaría repetir este patrón manualmente para cada una.
+
+### `NullLogger<T>.Instance`
+
+Implementación de `ILogger<T>` que no hace nada — de `Microsoft.Extensions.Logging.Abstractions`
+(el mismo paquete que ya se había instalado). Permite satisfacer el constructor de
+`CreatePaymentUseCase` en los tests sin necesitar logging real.
+
+### Resultado
+
+14 tests, 0 fallos: 10 en `Domain.Tests` (reglas de negocio y transiciones de estado de
+`Transaction`, sin ninguna dependencia externa) y 4 en `Application.Tests` (flujo completo de
+`CreatePaymentUseCase`, incluyendo idempotencia y reintentos, usando los fakes en vez de
+PostgreSQL/Acquirer Mock reales).
+
+```bash
+dotnet test
+```
+
+---
+
 ## Pendiente de documentar a medida que avancemos
 
 - Inyección de dependencias en .NET (profundizar más allá de lo ya cubierto)
-- xUnit — estructura de un test, `Fact` vs `Theory`

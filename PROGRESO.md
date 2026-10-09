@@ -99,6 +99,8 @@ desafío)_
 | 2026-10-09 | Creados y restaurados los 6 proyectos: Api, Domain, Application, Infrastructure, Domain.Tests, Application.Tests. Se resolvió un problema de NuGet sin fuente configurada (ver `CONCEPTOS.md`). |
 | 2026-10-09 | Los 6 proyectos agregados a `PaymentProcessingService.sln`. Referencias entre capas conectadas (Application→Domain, Infrastructure→Domain/Application, Api→Application/Infrastructure, tests→sus respectivos proyectos). `dotnet build` exitoso: 0 errores. Esqueleto de arquitectura completo. |
 | 2026-10-09 | ADR-006 (modelo de datos) y ADR-007 (idempotencia) definidos. Creada entidad `Transaction` y `TransactionStatus` en Domain, con validaciones y transiciones de estado controladas. `dotnet build` limpio (0 errores, 0 advertencias). |
+| 2026-10-09 | Repositorio conectado a GitHub (`payment-processing-service`). Primeros 3 commits con formato Conventional Commits: `docs`, `chore` (scaffolding) y `feat(domain)` (entidad Transaction). Push a `main` exitoso. |
+| 2026-10-09 | Rama `feature/application-contracts` creada. Definidas interfaces `ITransactionRepository` e `IAcquirerClient` en Application. Creado `CreatePaymentUseCase` orquestando el flujo completo (idempotencia, creación, autorización, actualización de estado). `dotnet build` limpio. |
 
 ---
 

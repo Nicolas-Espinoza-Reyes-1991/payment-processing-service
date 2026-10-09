@@ -334,6 +334,211 @@ justamente para no acumular deuda técnica silenciosa.
 
 ---
 
+## Git — flujo de trabajo profesional usado en este proyecto
+
+### Conventional Commits — formato de mensajes
+
+Cada commit usa el formato `<tipo>(<scope opcional>): <descripción>`:
+
+- `feat:` → funcionalidad nueva (ej. `feat(domain): agregar entidad Transaction`)
+- `fix:` → corrección de un bug
+- `docs:` → solo documentación, sin cambios de código
+- `chore:` → tareas de configuración/mantenimiento sin lógica de negocio (ej. scaffolding)
+- `test:` → agregar o modificar pruebas
+
+**Por qué importa:** es un estándar ampliamente usado en la industria. Permite generar
+changelogs automáticos, entender de un vistazo qué tipo de cambio trae cada commit sin abrir el
+diff, y es lo que vas a encontrar en casi cualquier equipo profesional.
+
+### Commits atómicos — un commit, un propósito
+
+En vez de un commit gigante con todo el trabajo mezclado, se separó en 3 commits lógicos:
+1. `docs: agregar documentacion inicial del desafio` — solo los `.md`
+2. `chore: scaffolding de la solucion .NET con arquitectura en capas` — proyectos vacíos, `.sln`, `.gitignore`
+3. `feat(domain): agregar entidad Transaction y TransactionStatus` — la primera lógica de negocio real
+
+**Por qué importa:** si en el futuro hay que revertir o revisar un cambio puntual (ej. "¿cuándo
+se agregó la regla de monto mínimo?"), un historial con commits chicos y bien descritos permite
+encontrarlo al instante con `git log` o `git blame`. Un commit único de "todo el proyecto" no
+permite esa trazabilidad.
+
+**Técnica usada para separar commits mezclados en una misma carpeta:** cuando dos commits
+distintos tenían archivos en la misma carpeta (ej. `src/Domain` tenía tanto el `.csproj` del
+scaffolding como las clases de negocio), se usó `git add` especificando archivos puntuales en
+vez de la carpeta completa, para controlar exactamente qué entra en cada commit.
+
+### `git branch -M main` — por qué renombrar la rama
+
+Git, por versiones antiguas, usa `master` como nombre de rama por defecto. La convención
+moderna (y la que usa GitHub por defecto en repos nuevos) es `main`. Se renombró con
+`git branch -M main` antes del primer commit para evitar inconsistencias entre el nombre local
+y el del remoto.
+
+### `git remote add origin <url>` — conectar con GitHub
+
+Un repositorio Git puede existir sin estar conectado a ningún servicio externo (como veníamos
+trabajando). `git remote add origin <url>` le agrega una referencia a un repositorio remoto
+(en este caso, en GitHub), nombrada `origin` por convención. `git push -u origin main` sube los
+commits locales a ese remoto, y `-u` (upstream) vincula la rama local con la remota para que
+los próximos `git push` no necesiten especificar destino.
+
+### Estrategia de branching para lo que sigue (a implementar)
+
+De acá en adelante, en vez de seguir commiteando directo sobre `main`, cada bloque de trabajo
+nuevo (persistencia, Acquirer Mock, endpoints, Docker, frontend) se va a desarrollar en su
+propia rama (`feature/<nombre>`), y se va a integrar a `main` mediante un **Pull Request** en
+GitHub.
+
+**Por qué importa:** simula el flujo de trabajo de un equipo real, aunque el desarrollo sea
+individual — el historial de Pull Requests queda como evidencia organizada del proceso de
+desarrollo, cada uno con su propia descripción del "qué" y el "por qué", algo que un evaluador
+puede revisar directamente en GitHub sin tener que leer todo el código de una sola vez.
+
+---
+
+## Principios SOLID aplicados en este proyecto
+
+Repaso de los 5 principios SOLID con ejemplos concretos del código ya escrito — material directo
+para la entrevista.
+
+### S — Single Responsibility Principle (una clase, una responsabilidad)
+
+✅ Aplicado. Cada capa tiene una sola razón para cambiar: `Transaction` solo protege sus propias
+reglas de negocio; `ITransactionRepository` solo define cómo persistir transacciones; el futuro
+`PaymentsController` solo traduce HTTP a llamadas de Application. Ninguna clase mezcla "validar
+reglas" con "guardar en base de datos" con "responder HTTP".
+
+### O — Open/Closed Principle (abierto a extensión, cerrado a modificación)
+
+🟡 Se demuestra al implementar `ITransactionRepository` en Infrastructure: si mañana se
+quisiera cambiar de PostgreSQL a otra base, o agregar un segundo adquirente, **no se toca
+ninguna línea de Application** — solo se agrega una implementación nueva de la interfaz.
+Application queda cerrado a modificación, abierto a extensión.
+
+### L — Liskov Substitution Principle (una implementación debe poder reemplazar a otra sin romper nada)
+
+🟡 Se demuestra en los tests: en vez de usar la implementación real con PostgreSQL, los tests de
+Application van a usar una implementación "falsa" en memoria (un *fake*) que también cumple
+`ITransactionRepository`. Si el código de Application funciona igual con cualquiera de las dos,
+sin saber cuál está usando, eso es Liskov en la práctica.
+
+### I — Interface Segregation Principle (interfaces chicas y específicas)
+
+✅ Aplicado: `ITransactionRepository` tiene exactamente 5 métodos, todos relacionados a
+transacciones — no es una interfaz genérica tipo `IRepository<T>` con decenas de métodos de los
+cuales solo se usarían unos pocos. Ninguna implementación futura tiene que escribir código
+"basura" para métodos que no necesita.
+
+### D — Dependency Inversion Principle (depender de abstracciones, no de implementaciones concretas)
+
+✅ Es el principio más directamente aplicado hasta ahora: Application no depende de "PostgreSQL"
+ni de "Entity Framework" — depende de la interfaz `ITransactionRepository` (una abstracción).
+Infrastructure, la capa de detalles técnicos, depende de esa misma abstracción para
+implementarla. Es la razón técnica concreta detrás de "Domain no depende de nadie" (ver
+ADR-003 en `DECISIONES.md`) — DIP es, en el fondo, el principio que justifica toda la elección
+de Clean Architecture.
+
+### Sobre escalabilidad a futuro
+
+La arquitectura actual deja la puerta abierta a varios escenarios sin rediseñar nada:
+
+- **Cambiar de base de datos:** solo se reemplaza la implementación de `ITransactionRepository`.
+- **Agregar un adquirente real** (reemplazando el Mock): se define una interfaz similar
+  (`IAcquirerClient`) e Infrastructure implementa la versión real — Application ni se entera.
+- **Escalar horizontalmente** (múltiples instancias del API detrás de un balanceador): el Api no
+  guarda estado en memoria, todo vive en PostgreSQL, así que es seguro levantar varias instancias.
+- **Migrar a microservicios más adelante**, si el negocio realmente lo exigiera: como
+  Application/Domain ya están desacoplados de Infrastructure, extraerlos a un servicio aparte
+  sería mucho más barato que si todo estuviera mezclado desde el principio (ver ADR-003).
+
+---
+
+## Convención de idioma: código en inglés, documentación en español
+
+- **Código** (clases, métodos, variables, nombres de archivo `.cs`): **siempre en inglés** —
+  `Transaction`, `TransactionStatus`, `Create`, `Approve`, `ITransactionRepository`,
+  `GetByIdAsync`. Es el estándar de facto en la industria del software, independiente del país:
+  todo el ecosistema .NET/ASP.NET Core/EF Core está en inglés, y mezclar idiomas en el código se
+  ve inconsistente.
+- **Documentación** (`REQUERIMIENTOS.md`, `DECISIONES.md`, `CONCEPTOS.md`, `PROGRESO.md`):
+  **en español**, decisión propia para que sirva como material de estudio y defensa.
+- **Mensajes de error de negocio que ve el usuario final** (ej. los mensajes dentro de
+  `Transaction.cs`): se mantienen en español, por ser una empresa chilena y mensajes dirigidos
+  al comercio/usuario final — es una decisión válida y consistente con el contexto del negocio.
+
+## Nuevo tipo: `record` (usado en `AcquirerResult`)
+
+```csharp
+public record AcquirerResult(bool IsApproved, string ResponseCode, string Message);
+```
+
+Un `record` es un tipo de C# pensado para representar **datos inmutables** (que no cambian una
+vez creados) — ideal para modelar la respuesta de un servicio externo: una vez que el adquirente
+responde, no tiene sentido que nadie modifique esa respuesta después. Es más compacto que una
+clase tradicional: en una sola línea define las 3 propiedades (`IsApproved`, `ResponseCode`,
+`Message`) con sus getters, constructor y comparación de igualdad incluidos automáticamente.
+
+---
+
+## `CreatePaymentUseCase` — el caso de uso que orquesta el flujo completo
+
+Archivo `src/Application/UseCases/CreatePaymentUseCase.cs`. Es la clase que coordina el flujo
+descrito en el PDF: recibir la solicitud → validar/crear la transacción → llamar al adquirente
+→ actualizar el estado final.
+
+### DTOs (`CreatePaymentRequest` / `CreatePaymentResponse`)
+
+Son `record` que representan "los datos que entran" y "los datos que salen" del caso de uso.
+**La entidad `Transaction` nunca se devuelve directamente hacia afuera** — se mapea a
+`CreatePaymentResponse`. Esto evita que el Api (o cualquier otra capa externa) dependa de los
+detalles internos del Domain; si el Domain cambia su estructura interna, el contrato hacia
+afuera (`CreatePaymentResponse`) puede mantenerse estable.
+
+### Inyección de Dependencias (Dependency Injection) — el constructor
+
+```csharp
+public CreatePaymentUseCase(ITransactionRepository transactionRepository, IAcquirerClient acquirerClient)
+```
+
+La clase **no crea** sus propias dependencias (nunca hace `new AlgoConcreto()` adentro) — las
+**recibe ya armadas** desde afuera, como parámetros del constructor. Esta es la forma práctica
+de aplicar el principio de Inversión de Dependencias (la "D" de SOLID): la clase solo conoce
+interfaces, nunca implementaciones concretas. Quien arma y "inyecta" las implementaciones reales
+es el framework (ASP.NET Core), configurado en `Program.cs` — se documenta en detalle cuando se
+llegue a ese paso.
+
+### Flujo de `ExecuteAsync`, paso a paso
+
+1. **Idempotencia primero** (ADR-007): busca una transacción existente con la misma
+   `IdempotencyKey`; si existe, la devuelve tal cual, sin crear ninguna nueva.
+2. **Enmascarar la tarjeta inmediatamente:** `request.CardNumber[^4..]` — sintaxis de C# para
+   "los últimos N caracteres de un string" (el `^4` cuenta posiciones desde el final). El
+   número completo de tarjeta nunca se guarda en ninguna variable que sobreviva más allá de esa
+   línea — consistente con la decisión de no persistir el PAN completo (ADR-006).
+3. **Crear la transacción** con `Transaction.Create(...)`, ya validada por el propio Domain.
+4. **Guardar** (`AddAsync`) y pasar a `Processing`.
+5. **Llamar al adquirente** mediante `IAcquirerClient` (implementación pendiente, en
+   Infrastructure).
+6. **Aprobar o rechazar** la transacción según la respuesta, y persistir el cambio.
+7. **Devolver la respuesta mapeada**, nunca la entidad interna.
+
+### Compiló sin tener ninguna implementación real — ¿por qué?
+
+Se esperaba que `dotnet build` fallara por no existir todavía ninguna clase que implemente
+`ITransactionRepository` ni `IAcquirerClient`, pero compiló sin errores. La razón: el
+compilador de C# solo exige que los **tipos usados como parámetros** existan (y existen, son
+las interfaces ya creadas) — nunca intenta crear una instancia concreta de ellas dentro de esta
+clase (`new ITransactionRepository()` ni siquiera es sintaxis válida, las interfaces no se
+pueden instanciar).
+
+**La distinción importante:** la falta de una implementación real recién se detecta en **tiempo
+de ejecución** (`dotnet run`), cuando ASP.NET Core intente armar un `CreatePaymentUseCase` real
+para atender una petición HTTP y no sepa qué clase concreta usar para cada interfaz — no en
+**tiempo de compilación** (`dotnet build`), que solo valida la sintaxis y los tipos, sin
+ejecutar nada.
+
+---
+
 ## Pendiente de documentar a medida que avancemos
 
 - Entity Framework Core — qué es, migraciones, `DbContext`

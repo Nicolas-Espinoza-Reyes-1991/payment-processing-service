@@ -21,6 +21,24 @@ builder.Services.AddScoped<CreatePaymentUseCase>();
 
 var app = builder.Build();
 
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(feature?.Error, "Error no controlado procesando {Path}", context.Request.Path);
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Ocurrió un error interno inesperado. Contacte a soporte si el problema persiste."
+        });
+    });
+});
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

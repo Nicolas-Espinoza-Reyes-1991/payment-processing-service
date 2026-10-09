@@ -201,7 +201,57 @@ ejemplo, usa exactamente este patrón).
 
 ---
 
-## Decisiones pendientes (se agregarán ADRs a medida que se definan)
+## ADR-008: Manejo de errores temporales del Acquirer Mock
 
-- ADR-008: Manejo de errores temporales del Acquirer Mock (reintentos, timeouts, circuit breaker)
-- ADR-009: Estrategia de logging/observabilidad
+**Contexto:** el PDF pide "considerar escenarios donde el adquirente pueda responder con
+errores temporales" — hasta este punto, `AcquirerMockClient` siempre respondía (aprobado o
+rechazado), nunca fallaba, por lo que no había nada que manejar ni demostrar.
+
+**Decisión — simulación del error:** se agregó un disparador **determinístico** (no aleatorio)
+en `AcquirerMockClient`: si los últimos 4 dígitos de la tarjeta son `"9999"`, el método lanza
+una `TimeoutException` en vez de responder, simulando que el adquirente real no contestó a
+tiempo.
+
+**Por qué determinístico y no aleatorio:** un disparo aleatorio (ej. "falla el 10% de las
+veces") haría el comportamiento difícil de reproducir a demanda — no se podría mostrar el
+escenario de error de forma confiable en la entrevista, ni testear de forma determinística. Con
+una tarjeta específica, el fallo se puede provocar siempre que se necesite.
+
+**Decisión — manejo del error (reintentos):** en `CreatePaymentUseCase`, la llamada al
+adquirente se envuelve en un bucle de **reintentos simples** (sin librerías externas como
+Polly): hasta 3 intentos totales, con una breve espera creciente entre intentos (backoff
+simple). Si los 3 intentos fallan, la transacción pasa a estado `Failed` y se persiste así,
+nunca queda en un estado intermedio ambiguo.
+
+**Por qué reintentos simples en vez de una librería como Polly:** Polly es la librería estándar
+de la industria .NET para políticas de resiliencia (reintentos, circuit breaker, timeout) y es
+una elección perfectamente válida en un proyecto real de mayor escala. Para el alcance de este
+desafío, un bucle de reintentos manual de ~10 líneas resuelve el requerimiento exacto que pide
+el PDF sin sumar una dependencia nueva — ya se discutió el criterio de mantener el set de
+librerías mínimo y justificado (ver nota en `CONCEPTOS.md` sobre confiabilidad de
+dependencias). Si el proyecto creciera y necesitara políticas más sofisticadas (circuit
+breaker, jitter, fallback), Polly sería la elección natural.
+
+**Consecuencias:** la transacción solo llega a `Failed` después de agotar los reintentos —
+nunca por una falla aislada de un solo intento. Este comportamiento se puede reproducir a
+demanda usando `"cardNumber"` terminada en `9999` en cualquier `POST /payments`.
+
+---
+
+## ADR-009: Estrategia de logging/observabilidad
+
+**Contexto:** el PDF pide logs que permitan seguir el flujo completo de una transacción, y
+poder correlacionar eventos relacionados con una misma transacción.
+
+**Decisión:** se usa `ILogger<T>` nativo de .NET (parte de `Microsoft.Extensions.Logging`, ya
+incluido en el SDK — no requiere ningún paquete NuGet adicional), con logging estructurado:
+cada log relevante del flujo de `CreatePaymentUseCase` incluye el `CorrelationId` de la
+transacción como parte del mensaje/scope, permitiendo filtrar todos los eventos de una misma
+transacción buscando ese identificador.
+
+**Por qué no Serilog u otra librería de logging más avanzada:** Serilog (u otras como NLog) son
+elecciones comunes en proyectos reales para enviar logs a destinos externos (archivos
+estructurados, Elasticsearch, Seq, Application Insights). Para este desafío, donde los logs se
+consultan en la consola/terminal durante la demo, el logging nativo de ASP.NET Core cumple el
+requerimiento sin sumar otra dependencia — mismo criterio que en ADR-008. Se documenta como
+posible evolución futura si el sistema necesitara centralizar logs de múltiples instancias.

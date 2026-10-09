@@ -869,6 +869,26 @@ docker exec payment-processing-postgres psql -U payment_user -d payment_processi
 
 ---
 
+## Simulación de error temporal en `AcquirerMockClient`
+
+Se agregó una constante `SimulatedTimeoutCardLast4 = "9999"` y una condición: si la tarjeta
+termina en esos 4 dígitos, el método `AuthorizeAsync` lanza `TimeoutException` en vez de
+devolver un `AcquirerResult`.
+
+**`throw new TimeoutException(...)`**: en C#, `throw` interrumpe la ejecución normal del método
+y "lanza" un objeto de excepción, que viaja hacia arriba por la pila de llamadas hasta que algún
+código lo captura con `try/catch` (lo vamos a capturar en `CreatePaymentUseCase` en el próximo
+paso) o, si nadie lo captura, termina rompiendo el programa. `TimeoutException` es una clase de
+excepción ya existente en .NET (no la creamos nosotros), pensada semánticamente para
+representar "algo tardó demasiado" — usarla en vez de una genérica `Exception` comunica mejor la
+intención a quien lea el código.
+
+**Por qué un disparador determinístico (tarjeta `...9999`) y no aleatorio:** permite reproducir
+el escenario de falla a demanda (útil para pruebas y para demostrarlo en la entrevista), en vez
+de depender de que "por azar" ocurra. Ver justificación completa en ADR-008 de `DECISIONES.md`.
+
+---
+
 ## Pendiente de documentar a medida que avancemos
 
 - Inyección de dependencias en .NET (profundizar más allá de lo ya cubierto)

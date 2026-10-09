@@ -66,10 +66,10 @@ o se referenciará un archivo en `/docs`)_
 
 - [x] Persistencia en base de datos relacional — PostgreSQL + EF Core, tabla `transactions` creada y verificada con datos reales
 - [x] Modelo de datos con trazabilidad — `CorrelationId`, timestamps, respuesta del adquirente guardada
-- [x] Manejo de errores de validación — probado: `400` sin `Idempotency-Key`, `400` con `status` inválido. _(Falta: manejo de errores no controlados/500 con middleware global)_
+- [x] Manejo de errores de validación y fallos del sistema — probado: `400` sin `Idempotency-Key`, `400` con `status` inválido, middleware global para excepciones no controladas (`500` genérico, sin exponer detalles internos)
 - [x] Idempotencia (evitar transacciones duplicadas) — probado en vivo: misma petición repetida no duplica fila en BD
-- [ ] Manejo de errores temporales del adquirente (reintentos / timeouts)
-- [ ] Logging estructurado del flujo completo
+- [x] Manejo de errores temporales del adquirente (reintentos / timeouts) — probado en vivo: 3 reintentos con backoff, transacción pasa a `Failed` tras agotarlos (ver `PRUEBAS.md`)
+- [x] Logging estructurado del flujo completo — `ILogger` nativo, ciclo de vida completo visible en logs reales filtrando por `CorrelationId`
 - [x] Correlation ID / Trace ID por transacción — campo `CorrelationId` en `Transaction`, generado en `Create()`, visible en las respuestas
 
 ## 5. Entregables
@@ -108,6 +108,7 @@ desafío)_
 | 2026-10-09 | Paquetes EF Core instalados: `Npgsql.EntityFrameworkCore.PostgreSQL` 8.0.11 (Infrastructure) y `Microsoft.EntityFrameworkCore.Design` 8.0.31 (Api). Resuelto conflicto de versión (NU1202) fijando rama 8.x. Herramienta global `dotnet-ef` 8.0.31 instalada. Creado `PaymentProcessingDbContext` con mapeo explícito de `Transaction` (Fluent API), `Status` como string, y constraint único en `IdempotencyKey`. |
 | 2026-10-09 | Creado `TransactionRepository` (implementación real de `ITransactionRepository`). Creado `AcquirerMockClient` (implementación de `IAcquirerClient`, adelantado por necesidad del árbol de dependencias). Cadena de conexión agregada en `appsettings.Development.json`. `Program.cs` configurado con `AddDbContext` + `AddScoped` para las 3 piezas (repositorio, acquirer mock, caso de uso). Migración `InitialCreate` generada y aplicada: tabla `transactions` creada y verificada directamente en PostgreSQL. `dotnet build` limpio (0 errores). |
 | 2026-10-09 | Creado `PaymentsController` (`POST /payments`, `GET /payments/{id}`, `GET /payments?merchant_id=&status=`) y los DTOs en `Contracts/`. Archivos de plantilla (`WeatherForecast*`) eliminados. Servidor probado en vivo con `dotnet run` + Swagger: creación de pago aprobado y rechazado (regla de monto máximo), idempotencia verificada (misma petición repetida no duplica fila en BD), consulta por id y por filtros, y validaciones de error (`400` sin header `Idempotency-Key`, `400` con `status` inválido). **Backend funcional end-to-end confirmado.** |
+| 2026-10-09 | ADR-008 (manejo de errores temporales) y ADR-009 (logging) definidos. `AcquirerMockClient` simula timeout determinístico (tarjeta `...9999`). `CreatePaymentUseCase` con reintentos (3 intentos, backoff simple) y logging estructurado con `ILogger` nativo, incluyendo `CorrelationId` en cada log. Middleware global de excepciones agregado en `Program.cs` (`500` genérico, sin exponer detalles internos). Probado en vivo: ciclo completo `Pending → Processing → 3 reintentos → Failed` visible en logs reales, capturado en `PRUEBAS.md`. |
 
 ---
 

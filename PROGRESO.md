@@ -4,6 +4,8 @@
 > El requerimiento original e inmutable está en [`REQUERIMIENTOS.md`](./REQUERIMIENTOS.md).
 > El razonamiento detrás de cada decisión técnica (para defender en la entrevista) está en
 > [`DECISIONES.md`](./DECISIONES.md).
+> La evidencia de pruebas end-to-end (requests, responses y capturas reales) está en
+> [`PRUEBAS.md`](./PRUEBAS.md).
 
 Última actualización: 2026-10-08
 
@@ -51,24 +53,24 @@ o se referenciará un archivo en `/docs`)_
 
 ## 3. Checklist de requerimientos funcionales
 
-- [ ] `POST /payments` — crear solicitud de pago (falta el endpoint HTTP; la lógica ya existe en `CreatePaymentUseCase`)
+- [x] `POST /payments` — crear solicitud de pago — probado en vivo, `201 Created`
 - [x] Validación de entrada a nivel de entidad (`merchant_id`, monto, moneda) — `Transaction.Create()`
 - [x] Creación de transacción con estado inicial (`PENDING`) — entidad `Transaction` en Domain
-- [ ] Reglas de negocio básicas (monto máximo, validación de tarjeta)
-- [x] Integración con Acquirer Mock — `AcquirerMockClient` implementado y registrado
-- [x] Actualización de estado final según respuesta del adquirente — en `CreatePaymentUseCase`
-- [ ] `GET /payments/{transaction_id}` — falta el endpoint HTTP (la consulta ya existe en `TransactionRepository`)
-- [ ] `GET /payments?merchant_id=...&status=...` — falta el endpoint HTTP (la consulta ya existe en `TransactionRepository`)
+- [x] Reglas de negocio básicas (monto máximo) — probado: monto > 1.000.000 → `Declined`. _(Falta: validación de tarjeta más allá del enmascarado — ej. algoritmo de Luhn, opcional)_
+- [x] Integración con Acquirer Mock — `AcquirerMockClient` implementado, registrado y probado
+- [x] Actualización de estado final según respuesta del adquirente — probado en vivo (Approved/Declined)
+- [x] `GET /payments/{transaction_id}` — probado en vivo, devuelve la transacción persistida
+- [x] `GET /payments?merchant_id=...&status=...` — probado en vivo, filtros funcionando
 
 ## 4. Checklist de requerimientos no funcionales
 
-- [x] Persistencia en base de datos relacional — PostgreSQL + EF Core, tabla `transactions` creada y verificada
+- [x] Persistencia en base de datos relacional — PostgreSQL + EF Core, tabla `transactions` creada y verificada con datos reales
 - [x] Modelo de datos con trazabilidad — `CorrelationId`, timestamps, respuesta del adquirente guardada
-- [ ] Manejo de errores de validación y fallos del sistema (falta manejo a nivel HTTP/middleware)
-- [x] Idempotencia (evitar transacciones duplicadas) — lógica en `CreatePaymentUseCase` + constraint `UNIQUE` en BD
+- [x] Manejo de errores de validación — probado: `400` sin `Idempotency-Key`, `400` con `status` inválido. _(Falta: manejo de errores no controlados/500 con middleware global)_
+- [x] Idempotencia (evitar transacciones duplicadas) — probado en vivo: misma petición repetida no duplica fila en BD
 - [ ] Manejo de errores temporales del adquirente (reintentos / timeouts)
 - [ ] Logging estructurado del flujo completo
-- [x] Correlation ID / Trace ID por transacción — campo `CorrelationId` en `Transaction`, generado en `Create()`
+- [x] Correlation ID / Trace ID por transacción — campo `CorrelationId` en `Transaction`, generado en `Create()`, visible en las respuestas
 
 ## 5. Entregables
 
@@ -105,6 +107,7 @@ desafío)_
 | 2026-10-09 | PR `feature/application-contracts` y PR de documentación mergeados a `main` vía GitHub. Rama `feature/infrastructure-persistence` creada. `docker-compose.yml` agregado (PostgreSQL 16); resuelto conflicto de puerto 5432 (reasignado a 5436) con otros proyectos del usuario ya corriendo en Docker. Contenedor `payment-processing-postgres` levantado y saludable. |
 | 2026-10-09 | Paquetes EF Core instalados: `Npgsql.EntityFrameworkCore.PostgreSQL` 8.0.11 (Infrastructure) y `Microsoft.EntityFrameworkCore.Design` 8.0.31 (Api). Resuelto conflicto de versión (NU1202) fijando rama 8.x. Herramienta global `dotnet-ef` 8.0.31 instalada. Creado `PaymentProcessingDbContext` con mapeo explícito de `Transaction` (Fluent API), `Status` como string, y constraint único en `IdempotencyKey`. |
 | 2026-10-09 | Creado `TransactionRepository` (implementación real de `ITransactionRepository`). Creado `AcquirerMockClient` (implementación de `IAcquirerClient`, adelantado por necesidad del árbol de dependencias). Cadena de conexión agregada en `appsettings.Development.json`. `Program.cs` configurado con `AddDbContext` + `AddScoped` para las 3 piezas (repositorio, acquirer mock, caso de uso). Migración `InitialCreate` generada y aplicada: tabla `transactions` creada y verificada directamente en PostgreSQL. `dotnet build` limpio (0 errores). |
+| 2026-10-09 | Creado `PaymentsController` (`POST /payments`, `GET /payments/{id}`, `GET /payments?merchant_id=&status=`) y los DTOs en `Contracts/`. Archivos de plantilla (`WeatherForecast*`) eliminados. Servidor probado en vivo con `dotnet run` + Swagger: creación de pago aprobado y rechazado (regla de monto máximo), idempotencia verificada (misma petición repetida no duplica fila en BD), consulta por id y por filtros, y validaciones de error (`400` sin header `Idempotency-Key`, `400` con `status` inválido). **Backend funcional end-to-end confirmado.** |
 
 ---
 
